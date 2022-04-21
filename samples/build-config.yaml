@@ -1,0 +1,23 @@
+---
+kind: BuildConfig
+apiVersion: build.openshift.io/v1
+metadata:
+  name: ruby-sample-build 
+  namespace: test-ecr-secret-operator
+spec:
+  runPolicy: Serial 
+  source: 
+    git:
+      uri: "https://github.com/openshift/ruby-hello-world"
+  strategy: 
+    sourceStrategy:
+      from:
+        kind: "ImageStreamTag"
+        name: "ruby:2.5"
+      incremental: true
+  output: 
+    to:
+      kind: "DockerImage"
+      name: "[ACCOUNT_ID].dkr.ecr.us-east-2.amazonaws.com/test:latest"
+  postCommit: 
+      script: "bundle exec rake test"

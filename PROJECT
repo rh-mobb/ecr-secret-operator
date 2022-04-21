@@ -1,0 +1,19 @@
+domain: mobb.redhat.com
+layout:
+- go.kubebuilder.io/v3
+plugins:
+  manifests.sdk.operatorframework.io/v2: {}
+  scorecard.sdk.operatorframework.io/v2: {}
+projectName: ecr-secret-operator
+repo: github.com/rh-mobb/ecr-secret-operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: mobb.redhat.com
+  group: ecr
+  kind: Secret
+  path: github.com/rh-mobb/ecr-secret-operator/api/v1alpha1
+  version: v1alpha1
+version: "3"
