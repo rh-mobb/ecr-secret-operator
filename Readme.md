@@ -10,7 +10,7 @@ This operators frequently talks with AWS ECR GetAuthroization Token and create/u
 ### Prerequisites
 
 * [Create an ECR private repository](https://docs.aws.amazon.com/AmazonECR/latest/userguide/repository-create.html)
-* Create an IAM user with appropriate IAM Policy and ECR registry Policy. [Example](./Docs/policy.md)
+* Create an IAM user with appropriate IAM Policy and ECR registry Policy. [Example](./docs/policy.md)
 * Create An Openshift Cluster
 * Install [Operator SDK CLI](https://sdk.operatorframework.io/docs/installation/)
 
