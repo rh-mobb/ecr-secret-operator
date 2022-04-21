@@ -39,7 +39,8 @@ type SecretSpec struct {
 type SecretStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	Message string `json:"message"`
+	Phase           string       `json:"phase,omitempty"`
+	LastUpdatedTime *metav1.Time `json:"lastUpdatedTime,omitempty"`
 }
 
 //+kubebuilder:object:root=true

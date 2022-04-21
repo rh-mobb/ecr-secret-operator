@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -30,8 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/rh-mobb/ecr-secret-operator/api/v1alpha1"
-	ecrv1alpha1 "github.com/rh-mobb/ecr-secret-operator/api/v1alpha1"
 	"github.com/rh-mobb/ecr-secret-operator/ecr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // SecretReconciler reconciles a Secret object
@@ -102,6 +103,7 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			if err = r.Client.Create(ctx, newSecret); err != nil {
 				return reconcile.Result{}, err
 			}
+			ecrSecret.Status.Phase = "Created"
 		} else {
 			return ctrl.Result{}, err
 		}
@@ -114,7 +116,9 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	ecrSecret.Status.Message = message
+	ecrSecret.Status.Phase = "Updated"
+	ecrSecret.Status.LastUpdatedTime = &metav1.Time{Time: time.Now()}
+	// ecrSecret.Status.Conditions.
 	if err := r.Client.Status().Update(ctx, ecrSecret); err != nil {
 		reqLogger.Error(err, "unable to update ECR secret status")
 		return ctrl.Result{}, err
@@ -125,6 +129,6 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 // SetupWithManager sets up the controller with the Manager.
 func (r *SecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&ecrv1alpha1.Secret{}).
+		For(&v1alpha1.Secret{}).
 		Complete(r)
 }

@@ -104,8 +104,8 @@ var _ = Describe("SecretController", func() {
 				if err != nil {
 					return "", err
 				}
-				return createdSecret.Status.Message, nil
-			}, timeout, interval).Should(Equal("Update secret default/test-secret"))
+				return createdSecret.Status.Phase, nil
+			}, timeout, interval).Should(Equal("Updated"))
 
 			// Make sure the docker secret object is created
 			dockerSecretLookupKey := types.NamespacedName{Name: generatedSecretName, Namespace: secretNameSpace}
