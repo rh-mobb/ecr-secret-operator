@@ -11,7 +11,7 @@ import (
 )
 
 type TokenRetriever interface {
-	GetToken(cfg *aws.Config) (string, error)
+	GetToken(region string) (string, error)
 }
 
 type DefaultTokenRetriever struct {
@@ -21,8 +21,10 @@ func NewDefaultTokenRetriever() *DefaultTokenRetriever {
 	return &DefaultTokenRetriever{}
 }
 
-func (r *DefaultTokenRetriever) GetToken(cfg *aws.Config) (string, error) {
-	s := session.Must(session.NewSession(cfg))
+func (r *DefaultTokenRetriever) GetToken(region string) (string, error) {
+	s := session.Must(session.NewSession(&aws.Config{
+		Region: aws.String(region)},
+	))
 	svc := ecr.New(s)
 	input := &ecr.GetAuthorizationTokenInput{}
 	result, err := svc.GetAuthorizationToken(input)

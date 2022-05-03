@@ -63,9 +63,7 @@ var _ = Describe("SecretController", func() {
 					GenerateSecretName: generatedSecretName,
 					ECRRegistry:        ecrRegistryDomain,
 					Frequency:          &metav1.Duration{Duration: duration},
-					AwsIamSecret: &v1.SecretReference{
-						Name: awsIamSecretName,
-					},
+					Region:             "us-east-2",
 				},
 			}
 
