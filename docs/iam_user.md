@@ -2,16 +2,7 @@
 
 **Notes: These are sample commands. Please fill in your own resource parameters E.g.ARN**
 
-* Create a user and access key
-
-```
-aws iam create-user --user-name ecr-bot
-aws create-access-key --user-name ecr-bot
-```
-
-**Notes: Save access key id and key for later usage**
-
-* Create the IAM policy and attach to the user
+* Create the policy
 
 ```
 cat <<EOF > /tmp/iam_policy.json
@@ -31,8 +22,18 @@ EOF
 aws iam create-policy \
     --policy-name ECRLoginPolicy \
     --policy-document file:///tmp/iam_policy.json
+```    
+
+* Create a user and access key and attach the policy
+
+```
+aws iam create-user --user-name ecr-bot
+aws create-access-key --user-name ecr-bot
 aws iam attach-user-policy --policy-arn arn:aws:iam::[ACCOUNT_ID]:policy/ECRLoginPolicy --user-name ecr-bot
 ```
+
+**Notes: Save access key id and key for later usage**
+
 
 * Set up a specific ECR repository access
 
@@ -66,3 +67,15 @@ EOF
 aws ecr set-repository-policy --repository-name test --policy-text file:///tmp/repo_policy.json
 ```
 
+* Create kubernetes Secret with iam user
+
+```
+cat <<EOF > /tmp/credentials
+[default]
+aws_access_key_id=""
+aws_secret_access_key=""
+EOF
+
+
+oc create secret generic aws-ecr-cloud-credentials --from-file=credentials=/tmp/credentials
+```
