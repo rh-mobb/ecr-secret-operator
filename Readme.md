@@ -21,7 +21,7 @@ This operators frequently talks with AWS ECR GetAuthroization Token and create/u
 
 ```
 oc new-project ecr-secret-operator
-operator-sdk run bundle quay.io/mobb/ecr-secret-operator-bundle:v0.1.1
+operator-sdk run bundle quay.io/mobb/ecr-secret-operator-bundle:v0.3.0
 ```
 
 ![Installed Operator](./docs/images/operator.png)
@@ -38,8 +38,7 @@ spec:
   generated_secret_name: ecr-docker-secret
   ecr_registry: [ACCOUNT_ID].dkr.ecr.us-east-2.amazonaws.com
   frequency: 10h
-  aws_iam_secret:
-    name: ecr-iam-secret
+  region: us-east-2
 ```
 
 ```
