@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -29,10 +28,10 @@ type SecretSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	GenerateSecretName string              `json:"generated_secret_name"`
-	ECRRegistry        string              `json:"ecr_registry"`
-	Frequency          *metav1.Duration    `json:"frequency"`
-	AwsIamSecret       *v1.SecretReference `json:"aws_iam_secret"`
+	GenerateSecretName string           `json:"generated_secret_name"`
+	ECRRegistry        string           `json:"ecr_registry"`
+	Region             string           `json:"region"`
+	Frequency          *metav1.Duration `json:"frequency"`
 }
 
 // SecretStatus defines the observed state of Secret

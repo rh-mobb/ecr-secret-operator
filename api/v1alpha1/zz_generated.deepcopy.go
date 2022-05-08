@@ -22,7 +22,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
@@ -92,11 +91,6 @@ func (in *SecretSpec) DeepCopyInto(out *SecretSpec) {
 	if in.Frequency != nil {
 		in, out := &in.Frequency, &out.Frequency
 		*out = new(v1.Duration)
-		**out = **in
-	}
-	if in.AwsIamSecret != nil {
-		in, out := &in.AwsIamSecret, &out.AwsIamSecret
-		*out = new(corev1.SecretReference)
 		**out = **in
 	}
 }

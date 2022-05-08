@@ -35,6 +35,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const iamSecretName string = "aws-ecr-cloud-credentials"
+
 // SecretReconciler reconciles a Secret object
 type SecretReconciler struct {
 	client.Client
@@ -71,23 +73,9 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return reconcile.Result{}, err
 	}
 
-	//Retrieve IAM secret
-
-	iamSecretID := types.NamespacedName{
-		Namespace: ecrSecret.Namespace,
-		Name:      ecrSecret.Spec.AwsIamSecret.Name,
-	}
-
-	iamSecret := &v1.Secret{}
-	if err = r.Client.Get(ctx, iamSecretID, iamSecret); err != nil {
-		reqLogger.Error(err, fmt.Sprintf("Can not find iam secret %s/%s", ecrSecret.Namespace, ecrSecret.Spec.AwsIamSecret.Name))
-		return reconcile.Result{}, err
-	}
-
 	reqLogger.Info("Generate ECR token")
 	newSecret, err := r.SecretGenerator.GenerateSecret(&ecr.Input{
-		S:         ecrSecret,
-		IamSecret: iamSecret,
+		S: ecrSecret,
 	})
 	if err != nil {
 		reqLogger.Error(err, "can not generate secret")

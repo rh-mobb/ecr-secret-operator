@@ -10,25 +10,20 @@ This operators frequently talks with AWS ECR GetAuthroization Token and create/u
 ### Prerequisites
 
 * [Create an ECR private repository](https://docs.aws.amazon.com/AmazonECR/latest/userguide/repository-create.html)
-* Create an IAM user with appropriate IAM Policy and ECR registry Policy. [Example](./docs/policy.md)
 * Create An Openshift Cluster
+* Provide AWS Authentication to the operator. Two Options:
+  * [IAM User](./docs/iam_user.md)
+  * [STS Assume Role](./docs/iam_assume_role.md)
 * Install [Operator SDK CLI](https://sdk.operatorframework.io/docs/installation/)
 
 ### Install the operator
 
 ```
 oc new-project ecr-secret-operator
-operator-sdk run bundle quay.io/mobb/ecr-secret-operator-bundle:v0.1.1
+operator-sdk run bundle quay.io/mobb/ecr-secret-operator-bundle:v0.3.0
 ```
 
 ![Installed Operator](./docs/images/operator.png)
-
-### Create the AWS IAM Secret 
-
-```
-oc new-project test-ecr-secret-operator
-oc create secret generic ecr-iam-secret --from-literal aws_secret_access_id=[ID] --from-literal aws_secret_access_key=[KEY] --from-literal region=us-east-2
-```
 
 ### Create the ECR Secret CRD
 
@@ -42,8 +37,7 @@ spec:
   generated_secret_name: ecr-docker-secret
   ecr_registry: [ACCOUNT_ID].dkr.ecr.us-east-2.amazonaws.com
   frequency: 10h
-  aws_iam_secret:
-    name: ecr-iam-secret
+  region: us-east-2
 ```
 
 ```

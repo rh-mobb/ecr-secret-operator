@@ -1,8 +1,6 @@
 package ecr_test
 
 import (
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -18,11 +16,7 @@ var _ = Describe("Ecr", func() {
 	Context("", func() {
 		It("Should get a token", func() {
 			Skip("")
-			cfg := &aws.Config{
-				Region:      aws.String("us-west-2"),
-				Credentials: credentials.NewStaticCredentials("A", "H", ""),
-			}
-			_, err := r.GetToken(cfg)
+			_, err := r.GetToken("us-east-2")
 			Expect(err).Should(BeNil())
 		})
 	})
