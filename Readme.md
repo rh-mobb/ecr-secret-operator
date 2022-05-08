@@ -14,7 +14,6 @@ This operators frequently talks with AWS ECR GetAuthroization Token and create/u
 * Provide AWS Authentication to the operator. Two Options:
   * [IAM User](./docs/iam_user.md)
   * [STS Assume Role](./docs/iam_assume_role.md)
-* Create an IAM user with appropriate IAM Policy and ECR registry Policy. [Example](./docs/policy.md)
 * Install [Operator SDK CLI](https://sdk.operatorframework.io/docs/installation/)
 
 ### Install the operator
