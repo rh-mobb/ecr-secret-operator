@@ -90,6 +90,7 @@ spec:
       - name: aws-credentials
         secret:
           secretName: aws-ecr-cloud-credentials
+          optional: true
       - name: bound-sa-token
         projected:
           sources:
