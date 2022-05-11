@@ -6,7 +6,7 @@
 
 ```
 aws iam create-user --user-name ecr-bot
-aws create-access-key --user-name ecr-bot
+aws iam create-access-key --user-name ecr-bot
 ```
 
 **Notes: Save access key id and key for later usage**
