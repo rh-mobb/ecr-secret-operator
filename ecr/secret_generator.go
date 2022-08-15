@@ -37,7 +37,7 @@ func (sg *DefaultSecretGenerator) GenerateSecret(input *Input) (*v1.Secret, erro
 	var token string
 	var err error
 	var dockerAuth []byte
-	if token, err = sg.r.GetToken("us-east-2"); err != nil {
+	if token, err = sg.r.GetToken(input.S.Spec.Region); err != nil {
 		return nil, err
 	}
 	if dockerAuth, err = getDockerAuth(input.S.Spec.ECRRegistry, "AWS", token); err != nil {
