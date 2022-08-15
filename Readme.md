@@ -20,7 +20,7 @@ This operators frequently talks with AWS ECR GetAuthroization Token and create/u
 
 ```
 oc new-project ecr-secret-operator
-operator-sdk run bundle quay.io/mobb/ecr-secret-operator-bundle:v0.3.0
+operator-sdk run bundle quay.io/mobb/ecr-secret-operator-bundle:v0.3.2
 ```
 
 ![Installed Operator](./docs/images/operator.png)

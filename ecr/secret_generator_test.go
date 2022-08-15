@@ -9,10 +9,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+var region string
+
 type FakeTokenGenerator struct {
 }
 
-func (f *FakeTokenGenerator) GetToken(string) (string, error) {
+func (f *FakeTokenGenerator) GetToken(regionInput string) (string, error) {
+	region = regionInput
 	return "test", nil
 }
 
@@ -33,6 +36,7 @@ var _ = Describe("SecretGenerator", func() {
 			Spec: v1alpha1.SecretSpec{
 				GenerateSecretName: "test-secret",
 				ECRRegistry:        "test.dkr.ecr.abc.amazonaws.com",
+				Region:             "region_name",
 			},
 		}
 	)
@@ -49,6 +53,7 @@ var _ = Describe("SecretGenerator", func() {
 			Expect(secret.TypeMeta.Kind).Should(Equal("Secret"))
 			var tp v1.SecretType = "kubernetes.io/dockerconfigjson"
 			Expect(secret.Type).Should(Equal(tp))
+			Expect(region).Should(Equal("region_name"))
 			// {
 			// 	"auths": {
 			// 	  "test.dkr.ecr.abc.amazonaws.com": {
