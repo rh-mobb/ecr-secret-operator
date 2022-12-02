@@ -1,16 +1,16 @@
-## Create STS Assume Role
+## Create the STS Assume Role
 
 [About AWS STS and Assume Role](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html)
 
-**Notes: These are sample commands. Please fill in your own resource parameters E.g.ARN**
+**Notes: These are sample commands. Please fill in your own resource parameters E.g. ARN**
 
-* Prequisites
+* Prerequisites
 
-  [An STS Openshift Cluster](https://docs.openshift.com/container-platform/4.10/authentication/managing_cloud_provider_credentials/cco-mode-sts.html)
+  [An STS OpenShift Cluster](https://docs.openshift.com/container-platform/4.10/authentication/managing_cloud_provider_credentials/cco-mode-sts.html)
 
-* Create the policy
+* Create the IAM policy
 
-```
+```bash
 cat <<EOF > /tmp/iam_policy.json
 {
     "Version": "2012-10-17",
@@ -32,9 +32,9 @@ aws iam create-policy \
 
 ```
 
-* Create the role and attach the policy
+* Create the IAM role and attach the IAM policy
 
-```
+```bash
 cat <<EOF > /tmp/trust_policy.json
 {
     "Version": "2012-10-17",
@@ -59,9 +59,9 @@ aws iam create-role --role-name ECRLogin --assume-role-policy-document file:///t
 aws iam attach-role-policy --role-name ECRLogin --policy-arn arn:aws:iam::[ACCOUNT_ID]:policy/ECRLoginPolicy
 ```
 
-* Create the repository policy
+* Create the repository IAM policy
 
-```
+```bash
 cat <<EOF > /tmp/repo_policy.json
 {
     "Version": "2012-10-17",
@@ -91,9 +91,9 @@ EOF
 aws ecr set-repository-policy --repository-name test --policy-text file:///tmp/repo_policy.json
 ```
 
-* Create STS kubernetes Secret
+* Create STS Kubernetes Secret
 
-```
+```bash
 cat <<EOF > /tmp/credentials
 [default]
 role_arn = arn:aws:iam::[ACCOUNT_ID]:role/ECRLogin

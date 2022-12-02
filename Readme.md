@@ -1,24 +1,23 @@
 # ECR Secret Operator
 
-Amazon Elastic Container Registry [Private Registry Authentication](https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html) provides a temporary token that is valid only for 12 hours. It is a challenge for automatic container image build process to refresh the token or secret in a timely manner.
+Amazon Elastic Container Registry [Private Registry Authentication](https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html) provides a temporary authorization token valid only for 12 hours. This operator refreshes automatically the Amazon ECR authorization token before it expires, reducing the overhead in managing the authentication flow during the container image build process.
 
-This operators frequently talks with AWS ECR GetAuthroization Token and create/update the secret, so that the service account can perform docker image build.
-
+This operator uses Amazon ECR [`GetAuthorizationToken`](https://docs.aws.amazon.com/AmazonECR/latest/APIReference/API_GetAuthorizationToken.html) API to create or update the secret, linked to an OpenShift service account that can transparently perform container image builds.
 
 ## How to use this operator
 
 ### Prerequisites
 
-* [Create an ECR private repository](https://docs.aws.amazon.com/AmazonECR/latest/userguide/repository-create.html)
-* Create An Openshift Cluster
-* Provide AWS Authentication to the operator. Two Options:
-  * [IAM User](./docs/iam_user.md)
-  * [STS Assume Role](./docs/iam_assume_role.md)
-* Install [Operator SDK CLI](https://sdk.operatorframework.io/docs/installation/)
+* [Create an Amazon ECR private repository](https://docs.aws.amazon.com/AmazonECR/latest/userguide/repository-create.html)
+* Create An OpenShift Cluster
+* Configure AWS authentication method. Two options:
+  * [AWS IAM User](./docs/iam_user.md)
+  * [AWS STS AssumeRole](./docs/iam_assume_role.md)
+* Install the [Operator SDK CLI](https://sdk.operatorframework.io/docs/installation/)
 
 ### Install the operator
 
-```
+```bash
 oc new-project ecr-secret-operator
 operator-sdk run bundle quay.io/mobb/ecr-secret-operator-bundle:v0.3.2
 ```
@@ -27,7 +26,7 @@ operator-sdk run bundle quay.io/mobb/ecr-secret-operator-bundle:v0.3.2
 
 ### Create the ECR Secret CRD
 
-```
+```yaml
 apiVersion: ecr.mobb.redhat.com/v1alpha1
 kind: Secret
 metadata:
@@ -40,13 +39,13 @@ spec:
   region: us-east-2
 ```
 
-```
+```bash
 oc create -f samples/ecr_v1alpha1_secret.yaml
 ```
 
-A docker registry secret is created by the operator momentally and the token is patched every 10 hours
+A Docker registry secret is created by the operator temporarily and the token is patched every 10 hours
 
-```
+```bash
 oc get secret ecr-docker-secret   
 NAME                TYPE                             DATA   AGE
 ecr-docker-secret   kubernetes.io/dockerconfigjson   1      16h
@@ -54,23 +53,21 @@ ecr-docker-secret   kubernetes.io/dockerconfigjson   1      16h
 
 ### A sample build process with generated secret
 
-
 Link the secret to builder
 
-```
+```bash
 oc secrets link builder ecr-docker-secret 
 ```
 
-Configure [build config](./samples/build-config.yaml) to point to your ECR Container repository
+Configure [build config](./samples/build-config.yaml) to point to your Amazon ECR Container repository
 
-```
+```bash
 oc create imagestream ruby
 oc tag openshift/ruby:2.5-ubi8 ruby:2.5
 oc create -f samples/build-config.yaml
 oc start-build ruby-sample-build --wait
 ```
 
-Build should succeed and push the image to the the private ECR Container repository
+The build should succeed and push the image to the the private Amazon ECR Container repository
 
 ![Success Build](./docs/images/build.png)
-
