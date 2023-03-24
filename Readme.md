@@ -33,7 +33,7 @@ metadata:
   name: ecr-secret
   namespace: test-ecr-secret-operator
 spec:
-  generated_secret_name: ecr-docker-secret
+  generated_secret_name: ecr-secret
   ecr_registry: [ACCOUNT_ID].dkr.ecr.us-east-2.amazonaws.com
   frequency: 10h
   region: us-east-2
@@ -46,9 +46,9 @@ oc create -f samples/ecr_v1alpha1_secret.yaml
 A Docker registry secret is created by the operator temporarily and the token is patched every 10 hours
 
 ```bash
-oc get secret ecr-docker-secret   
+oc get secret ecr-secret   
 NAME                TYPE                             DATA   AGE
-ecr-docker-secret   kubernetes.io/dockerconfigjson   1      16h
+ecr-secret   kubernetes.io/dockerconfigjson   1      16h
 ```
 
 ### A sample build process with generated secret
@@ -56,7 +56,7 @@ ecr-docker-secret   kubernetes.io/dockerconfigjson   1      16h
 Link the secret to builder
 
 ```bash
-oc secrets link builder ecr-docker-secret 
+oc secrets link builder ecr-secret 
 ```
 
 Configure [build config](./samples/build-config.yaml) to point to your Amazon ECR Container repository
