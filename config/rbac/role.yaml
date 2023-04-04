@@ -20,6 +20,32 @@ rules:
 - apiGroups:
   - ecr.mobb.redhat.com
   resources:
+  - argohelmreposecrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ecr.mobb.redhat.com
+  resources:
+  - argohelmreposecrets/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ecr.mobb.redhat.com
+  resources:
+  - argohelmreposecrets/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - ecr.mobb.redhat.com
+  resources:
   - secrets
   verbs:
   - create

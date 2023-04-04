@@ -47,6 +47,7 @@ var (
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
+	RunSpecs(t, "ECR Controller Test Suite")
 }
 
 var _ = BeforeSuite(func() {
@@ -82,6 +83,13 @@ var _ = BeforeSuite(func() {
 		Scheme: k8sManager.GetScheme(),
 		// SecretGenerator: ecr.NewDefaultSecretGenerator(ecr.NewDefaultTokenRetriever()),
 		SecretGenerator: &FakeSecretGenerator{},
+	}).SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = (&ArgoHelmRepoSecretReconciler{
+		Client:          k8sManager.GetClient(),
+		Scheme:          k8sManager.GetScheme(),
+		SecretGenerator: &FakeArgoHelmSecretGenerator{},
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
