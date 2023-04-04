@@ -15,8 +15,8 @@ limitations under the License.
 */
 
 // Package v1alpha1 contains API Schema definitions for the ecr v1alpha1 API group
-//+kubebuilder:object:generate=true
-//+groupName=ecr.mobb.redhat.com
+// +kubebuilder:object:generate=true
+// +groupName=ecr.mobb.redhat.com
 package v1alpha1
 
 import (

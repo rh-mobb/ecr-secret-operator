@@ -40,6 +40,7 @@ func (sg *DefaulArgoHelmSecretGenerator) GenerateSecret(input *v1alpha1.ArgoHelm
 			"password": []byte(token),
 			"url":      []byte(input.Spec.URL),
 			"type":     []byte("helm"),
+			"name":     []byte(input.Spec.GenerateSecretName),
 		},
 	}, nil
 }

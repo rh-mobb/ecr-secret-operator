@@ -44,6 +44,7 @@ var _ = Describe("SecretGenerator", func() {
 			Expect(string(secret.Data["url"])).Should(Equal("https://test.dkr.ecr.abc.amazonaws.com/abc"))
 			Expect(string(secret.Data["username"])).Should(Equal("AWS"))
 			Expect(string(secret.Data["password"])).Should(Equal("test"))
+			Expect(string(secret.Data["name"])).Should(Equal("test-secret"))
 		})
 	})
 })

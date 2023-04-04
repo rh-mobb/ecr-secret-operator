@@ -24,7 +24,7 @@ operator-sdk run bundle quay.io/mobb/ecr-secret-operator-bundle:v0.3.2
 
 ![Installed Operator](./docs/images/operator.png)
 
-### Create the ECR Secret CRD
+### Create the ECR Secret Image Pull CRD
 
 ```yaml
 apiVersion: ecr.mobb.redhat.com/v1alpha1
@@ -71,3 +71,44 @@ oc start-build ruby-sample-build --wait
 The build should succeed and push the image to the the private Amazon ECR Container repository
 
 ![Success Build](./docs/images/build.png)
+
+### Create the ECR Secret Argo CD Helm Repo CRD
+
+[Given the helm chart stored in ecr](https://docs.aws.amazon.com/AmazonECR/latest/userguide/push-oci-artifact.html)
+
+```bash
+export ACCOUNT_AWS_ID=
+cat << EOF | oc apply -f -
+apiVersion: ecr.mobb.redhat.com/v1alpha1
+kind: ArgoHelmRepoSecret
+metadata:
+  name: helm-repo
+  namespace: openshift-gitops
+spec:
+  generated_secret_name: ecr-argo-helm-secret
+  url: ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-2.amazonaws.com
+  frequency: 10h
+  region: us-east-2
+EOF
+cat << EOF | oc apply -f -
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: test
+spec:
+  destination:
+    name: ''
+    namespace: default
+    server: 'https://kubernetes.default.svc'
+  source:
+    path: ''
+    repoURL: ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-2.amazonaws.com
+    targetRevision: 0.1.0
+    chart: helm-test-chart
+  project: default
+EOF
+```
+
+```bash
+oc create -f samples/ecr_v1alpha1_argohelmreposecret.yaml
+```
