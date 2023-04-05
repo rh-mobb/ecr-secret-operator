@@ -19,7 +19,7 @@ This operator uses Amazon ECR [`GetAuthorizationToken`](https://docs.aws.amazon.
 
 ```bash
 oc new-project ecr-secret-operator
-operator-sdk run bundle quay.io/mobb/ecr-secret-operator-bundle:v0.3.2
+operator-sdk run bundle quay.io/mobb/ecr-secret-operator-bundle:v0.4.0
 ```
 
 ![Installed Operator](./docs/images/operator.png)
@@ -74,7 +74,8 @@ The build should succeed and push the image to the the private Amazon ECR Contai
 
 ### Create the ECR Secret Argo CD Helm Repo CRD
 
-[Given the helm chart stored in ecr](https://docs.aws.amazon.com/AmazonECR/latest/userguide/push-oci-artifact.html)
+* Argo CD installed
+* [Helm chart stored in ecr](https://docs.aws.amazon.com/AmazonECR/latest/userguide/push-oci-artifact.html)
 
 ```bash
 export ACCOUNT_AWS_ID=
