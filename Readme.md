@@ -1,8 +1,11 @@
 # ECR Secret Operator
 
-Amazon Elastic Container Registry [Private Registry Authentication](https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html) provides a temporary authorization token valid only for 12 hours. This operator refreshes automatically the Amazon ECR authorization token before it expires, reducing the overhead in managing the authentication flow during the container image build process.
+Amazon Elastic Container Registry [Private Registry Authentication](https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html) provides a temporary authorization token valid only for 12 hours. This operator refreshes automatically the Amazon ECR authorization token before it expires, reducing the overhead in managing the authentication flow.
 
-This operator uses Amazon ECR [`GetAuthorizationToken`](https://docs.aws.amazon.com/AmazonECR/latest/APIReference/API_GetAuthorizationToken.html) API to create or update the secret, linked to an OpenShift service account that can transparently perform container image builds.
+This operator contains two Custom Resources which directs the operator to generate/refresh Amazon ECR authorization token in a timely manner:
+
+* [Image Pull Secret API](./api/v1alpha1/secret_types.go)
+* [Argo CD Repo Helm Chart Secret](./api/v1alpha1/argohelmreposecret_types.go)
 
 ## How to use this operator
 
@@ -26,7 +29,8 @@ operator-sdk run bundle quay.io/mobb/ecr-secret-operator-bundle:v0.4.0
 
 ### Create the ECR Secret Image Pull CRD
 
-```yaml
+```bash
+cat << EOF | oc apply -f -
 apiVersion: ecr.mobb.redhat.com/v1alpha1
 kind: Secret
 metadata:
@@ -34,7 +38,7 @@ metadata:
   namespace: test-ecr-secret-operator
 spec:
   generated_secret_name: ecr-docker-secret
-  ecr_registry: [ACCOUNT_ID].dkr.ecr.us-east-2.amazonaws.com
+  ecr_registry: ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-2.amazonaws.com
   frequency: 10h
   region: us-east-2
 ```
@@ -76,6 +80,7 @@ The build should succeed and push the image to the the private Amazon ECR Contai
 
 * Argo CD installed
 * [Helm chart stored in ecr](https://docs.aws.amazon.com/AmazonECR/latest/userguide/push-oci-artifact.html)
+* ```aws ecr set-repository-policy --repository-name helm-test-chart --policy-text file:///tmp/repo_policy.json```
 
 ```bash
 export ACCOUNT_AWS_ID=
@@ -99,7 +104,7 @@ metadata:
 spec:
   destination:
     name: ''
-    namespace: default
+    namespace: test-ecr-secret-operator
     server: 'https://kubernetes.default.svc'
   source:
     path: ''
@@ -110,6 +115,4 @@ spec:
 EOF
 ```
 
-```bash
-oc create -f samples/ecr_v1alpha1_argohelmreposecret.yaml
-```
+![The ArgoCD application should sync with ECR helm chart successfully](./docs/images/argo_helm.png)
