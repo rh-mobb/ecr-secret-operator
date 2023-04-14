@@ -36,11 +36,12 @@ func (sg *DefaulArgoHelmSecretGenerator) GenerateSecret(input *v1alpha1.ArgoHelm
 			},
 		},
 		Data: map[string][]byte{
-			"username": []byte("AWS"),
-			"password": []byte(token),
-			"url":      []byte(input.Spec.URL),
-			"type":     []byte("helm"),
-			"name":     []byte(input.Spec.GenerateSecretName),
+			"username":  []byte("AWS"),
+			"password":  []byte(token),
+			"url":       []byte(input.Spec.URL),
+			"type":      []byte("helm"),
+			"enableOCI": []byte("true"),
+			"name":      []byte(input.Spec.GenerateSecretName),
 		},
 	}, nil
 }

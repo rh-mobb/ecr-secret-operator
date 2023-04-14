@@ -103,11 +103,9 @@ metadata:
   name: test
 spec:
   destination:
-    name: ''
     namespace: test-ecr-secret-operator
     server: 'https://kubernetes.default.svc'
   source:
-    path: ''
     repoURL: ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-2.amazonaws.com
     targetRevision: 0.1.0
     chart: helm-test-chart
