@@ -23,16 +23,17 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/rh-mobb/ecr-secret-operator/api/v1alpha1"
 	"github.com/rh-mobb/ecr-secret-operator/ecr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // SecretReconciler reconciles a Secret object
@@ -80,12 +81,9 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return reconcile.Result{}, err
 	}
 	secret := &v1.Secret{}
-	var message string
-	// Generate a new secret
 	if err = r.Client.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: ecrSecret.Spec.GenerateSecretName}, secret); err != nil {
 		if errors.IsNotFound(err) {
-			message = fmt.Sprintf("Generate new secret %s/%s", req.Namespace, ecrSecret.Spec.GenerateSecretName)
-			reqLogger.Info(message)
+			reqLogger.Info(fmt.Sprintf("Generate new secret %s/%s", req.Namespace, ecrSecret.Spec.GenerateSecretName))
 			if err = r.Client.Create(ctx, newSecret); err != nil {
 				return reconcile.Result{}, err
 			}
@@ -94,17 +92,15 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			return ctrl.Result{}, err
 		}
 	} else {
-		message = fmt.Sprintf("Update secret %s/%s", req.Namespace, ecrSecret.Spec.GenerateSecretName)
-		reqLogger.Info(message)
-	}
-	secret.Data = newSecret.Data
-	if err = r.Client.Update(ctx, secret); err != nil {
-		return ctrl.Result{}, err
+		reqLogger.Info(fmt.Sprintf("Update secret %s/%s", req.Namespace, ecrSecret.Spec.GenerateSecretName))
+		secret.Data = newSecret.Data
+		if err = r.Client.Update(ctx, secret); err != nil {
+			return ctrl.Result{}, err
+		}
+		ecrSecret.Status.Phase = "Updated"
 	}
 
-	ecrSecret.Status.Phase = "Updated"
 	ecrSecret.Status.LastUpdatedTime = &metav1.Time{Time: time.Now()}
-	// ecrSecret.Status.Conditions.
 	if err := r.Client.Status().Update(ctx, ecrSecret); err != nil {
 		reqLogger.Error(err, "unable to update ECR secret status")
 		return ctrl.Result{}, err
@@ -116,5 +112,6 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 func (r *SecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Secret{}).
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		Complete(r)
 }
