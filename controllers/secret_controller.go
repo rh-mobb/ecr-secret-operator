@@ -87,7 +87,6 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			if err = r.Client.Create(ctx, newSecret); err != nil {
 				return reconcile.Result{}, err
 			}
-			ecrSecret.Status.Phase = "Created"
 		} else {
 			return ctrl.Result{}, err
 		}

@@ -85,7 +85,6 @@ func (r *ArgoHelmRepoSecretReconciler) Reconcile(ctx context.Context, req ctrl.R
 			if err = r.Client.Create(ctx, newSecret); err != nil {
 				return reconcile.Result{}, err
 			}
-			ecrSecret.Status.Phase = "Created"
 		} else {
 			return ctrl.Result{}, err
 		}
