@@ -96,9 +96,9 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		if err = r.Client.Update(ctx, secret); err != nil {
 			return ctrl.Result{}, err
 		}
-		ecrSecret.Status.Phase = "Updated"
 	}
 
+	ecrSecret.Status.Phase = "Updated"
 	ecrSecret.Status.LastUpdatedTime = &metav1.Time{Time: time.Now()}
 	if err := r.Client.Status().Update(ctx, ecrSecret); err != nil {
 		reqLogger.Error(err, "unable to update ECR secret status")

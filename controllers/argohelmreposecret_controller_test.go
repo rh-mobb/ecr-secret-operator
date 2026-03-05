@@ -50,7 +50,7 @@ var _ = Describe("ArgoHelmRepoSecretController", func() {
 					Namespace: secretNameSpace,
 				},
 				Spec: v1alpha1.ArgoHelmRepoSecretSpec{
-					GenerateSecretName: "test-secret",
+					GenerateSecretName: "test-argo-secret",
 					URL:                helmRepoURL,
 					Frequency:          &metav1.Duration{Duration: duration},
 					Region:             "us-east-2",
@@ -79,7 +79,7 @@ var _ = Describe("ArgoHelmRepoSecretController", func() {
 			}, timeout, interval).Should(Equal("Updated"))
 
 			// Make sure the docker secret object is created
-			secretLookupKey = types.NamespacedName{Name: "test-secret", Namespace: secretNameSpace}
+			secretLookupKey = types.NamespacedName{Name: "test-argo-secret", Namespace: secretNameSpace}
 			createdArgoHelmRepoSecret := &v1.Secret{}
 			Eventually(func() (string, error) {
 				err := k8sClient.Get(ctx, secretLookupKey, createdArgoHelmRepoSecret)
