@@ -193,7 +193,7 @@ bundle-build: ## Build the bundle image.
 
 .PHONY: bundle-push
 bundle-push: ## Push the bundle image.
-	$(MAKE) podman-push IMG=$(BUNDLE_IMG)
+	podman push $(BUNDLE_IMG)
 
 .PHONY: opm
 OPM = ./bin/opm
@@ -234,4 +234,4 @@ catalog-build: opm ## Build a catalog image.
 # Push the catalog image.
 .PHONY: catalog-push
 catalog-push: ## Push a catalog image.
-	$(MAKE) podman-push IMG=$(CATALOG_IMG)
+	podman push $(CATALOG_IMG)
