@@ -74,9 +74,7 @@ spec:
         - name: AWS_CONFIG_FILE
           value: /var/run/secrets/aws/credentials        
         - name: WATCH_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
+          value: ""
         volumeMounts:
         - name: aws-credentials
           mountPath: /var/run/secrets/aws
