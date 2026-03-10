@@ -1,0 +1,34 @@
+name: Sync Forks
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  sync-community-operators-prod:
+    name: Sync rh-mobb/community-operators-prod
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Sync fork with upstream
+        run: |
+          gh repo sync rh-mobb/community-operators-prod \
+            --source redhat-openshift-ecosystem/community-operators-prod \
+            --branch main
+          echo "✅ rh-mobb/community-operators-prod synced with upstream"
+        env:
+          GH_TOKEN: ${{ secrets.OPERATORHUB_PR_TOKEN }}
+
+  sync-community-operators:
+    name: Sync rh-mobb/community-operators
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Sync fork with upstream
+        run: |
+          gh repo sync rh-mobb/community-operators \
+            --source k8s-operatorhub/community-operators \
+            --branch main
+          echo "✅ rh-mobb/community-operators synced with upstream"
+        env:
+          GH_TOKEN: ${{ secrets.OPERATORHUB_PR_TOKEN }}
