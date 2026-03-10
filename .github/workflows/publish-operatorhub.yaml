@@ -1,0 +1,313 @@
+name: Publish to OperatorHub
+
+on:
+  release:
+    types: [published]
+
+env:
+  IMAGE_TAG_BASE: quay.io/rh-mobb/ecr-secret-operator
+  COMMUNITY_OPERATORS_PROD_REPO: redhat-openshift-ecosystem/community-operators-prod
+  COMMUNITY_OPERATORS_REPO: k8s-operatorhub/community-operators
+
+jobs:
+  validate-secrets:
+    name: Validate required secrets are set
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check secrets
+        run: |
+          MISSING=""
+          [ -z "${{ secrets.QUAY_USERNAME }}"       ] && MISSING="${MISSING}\n  - QUAY_USERNAME"
+          [ -z "${{ secrets.QUAY_PASSWORD }}"       ] && MISSING="${MISSING}\n  - QUAY_PASSWORD"
+          [ -z "${{ secrets.OPERATORHUB_PR_TOKEN }}" ] && MISSING="${MISSING}\n  - OPERATORHUB_PR_TOKEN"
+          if [ -n "${MISSING}" ]; then
+            echo "❌ The following required secrets are not set:${MISSING}"
+            echo ""
+            echo "Configure them under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "✅ All required secrets are set"
+
+  sync-forks:
+    name: Sync community operator forks
+    needs: validate-secrets
+    uses: ./.github/workflows/sync-forks.yaml
+    secrets: inherit
+
+  build-and-push:
+    name: Build and push images
+    runs-on: ubuntu-latest
+    needs: validate-secrets
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+
+    steps:
+      - name: Checkout operator repo
+        uses: actions/checkout@v4
+
+      - name: Parse version from release tag
+        id: version
+        # Strip the leading 'v' from the tag (e.g. v0.6.0 → 0.6.0)
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+
+      - name: Install operator-sdk
+        run: |
+          OPERATOR_SDK_VERSION=v1.42.0
+          curl -sSLo /usr/local/bin/operator-sdk \
+            "https://github.com/operator-framework/operator-sdk/releases/download/${OPERATOR_SDK_VERSION}/operator-sdk_linux_amd64"
+          chmod +x /usr/local/bin/operator-sdk
+
+      - name: Install kustomize and controller-gen
+        run: make kustomize controller-gen
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y podman
+
+      - name: Log in to Quay.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build and push multi-arch operator image
+        run: |
+          make podman-build podman-push \
+            IMG=${{ env.IMAGE_TAG_BASE }}:${{ github.ref_name }}
+
+      - name: Stamp VERSION, containerImage, and createdAt into sources
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          TAG=${{ github.ref_name }}
+          sed -i "s/^VERSION ?= .*/VERSION ?= ${VERSION}/" Makefile
+          sed -i "s|containerImage: .*|containerImage: ${{ env.IMAGE_TAG_BASE }}:${TAG}|" \
+            config/manifests/bases/ecr-secret-operator.clusterserviceversion.yaml
+          sed -i "s|createdAt: .*|createdAt: \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"|" \
+            config/manifests/bases/ecr-secret-operator.clusterserviceversion.yaml
+
+      - name: Generate OLM bundle
+        run: make bundle IMG=${{ env.IMAGE_TAG_BASE }}:${{ github.ref_name }}
+
+      - name: Restore com.redhat.openshift.versions annotation
+        # make bundle regenerates annotations.yaml and drops custom annotations
+        run: |
+          if ! grep -q "com.redhat.openshift.versions" bundle/metadata/annotations.yaml; then
+            sed -i '/operators.operatorframework.io.metrics.project_layout/a\  com.redhat.openshift.versions: "v4.16"' \
+              bundle/metadata/annotations.yaml
+          fi
+
+      - name: Validate bundle
+        run: |
+          operator-sdk bundle validate ./bundle \
+            --select-optional suite=operatorframework
+          operator-sdk bundle validate ./bundle \
+            --select-optional name=operatorhub
+          operator-sdk bundle validate ./bundle \
+            --select-optional name=good-practices
+
+      - name: Build and push bundle image
+        run: |
+          make bundle-build bundle-push \
+            BUNDLE_IMG=${{ env.IMAGE_TAG_BASE }}-bundle:${{ github.ref_name }}
+
+      - name: Upload bundle as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle
+          path: bundle/
+
+  # ------------------------------------------------------------------ #
+  # community-operators-prod  (OpenShift OperatorHub — uses FBC)
+  #
+  # FBC process:
+  #   1. Copy the bundle version directory (manifests + metadata)
+  #   2. Add the new version entry to catalog-templates/basic.yaml
+  #   3. Update release-config.yaml with the new replaces/skips graph
+  #   The pipeline renders the actual catalogs from these templates.
+  # ------------------------------------------------------------------ #
+  publish-openshift-operatorhub:
+    name: PR to community-operators-prod (FBC)
+    runs-on: ubuntu-latest
+    needs: [sync-forks, build-and-push]
+
+    steps:
+      - name: Download bundle artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bundle
+          path: bundle/
+
+      - name: Checkout community-operators-prod fork
+        uses: actions/checkout@v4
+        with:
+          repository: rh-mobb/community-operators-prod
+          path: community-operators-prod
+          token: ${{ secrets.OPERATORHUB_PR_TOKEN }}
+
+      - name: Copy bundle version directory
+        run: |
+          VERSION=${{ needs.build-and-push.outputs.version }}
+          DEST=community-operators-prod/operators/ecr-secret-operator/${VERSION}
+          mkdir -p "${DEST}"
+          cp -r bundle/manifests "${DEST}/"
+          cp -r bundle/metadata  "${DEST}/"
+
+      - name: Update catalog-templates/basic.yaml with new version
+        # Insert the new version entry at the top of the alpha channel entries list.
+        # The new entry replaces the previous latest version.
+        run: |
+          VERSION=${{ needs.build-and-push.outputs.version }}
+          PREV_VERSION=${{ github.ref_name }}   # full tag, used only for display
+          TEMPLATE=community-operators-prod/operators/ecr-secret-operator/catalog-templates/basic.yaml
+
+          # Find the current latest bundle entry name to use as 'replaces'
+          PREV_BUNDLE=$(grep "name: ecr-secret-operator.v" "${TEMPLATE}" | head -1 | awk '{print $2}')
+
+          # Insert the new channel entry before the first existing entry
+          python3 - <<PYEOF
+          import re, sys
+
+          with open("${TEMPLATE}") as f:
+              content = f.read()
+
+          new_entry = (
+              "  - name: ecr-secret-operator.v${VERSION}\n"
+              f"    replaces: {PREV_BUNDLE}\n"
+          )
+
+          # Insert after the 'entries:' line in the alpha channel block
+          content = content.replace(
+              "- entries:\n",
+              "- entries:\n" + new_entry,
+              1  # only the first occurrence (the alpha channel)
+          )
+
+          with open("${TEMPLATE}", "w") as f:
+              f.write(content)
+          PYEOF
+
+          echo "Updated ${TEMPLATE}:"
+          grep -A5 "- entries:" "${TEMPLATE}" | head -10
+
+      - name: Update release-config.yaml
+        run: |
+          VERSION=${{ needs.build-and-push.outputs.version }}
+          RELEASE_CONFIG=community-operators-prod/operators/ecr-secret-operator/release-config.yaml
+
+          # Find the current 'replaces' value to cascade it into 'skips'
+          CURRENT_REPLACES=$(grep "replaces:" "${RELEASE_CONFIG}" | awk '{print $2}')
+
+          python3 - <<PYEOF
+          import yaml, sys
+
+          with open("${RELEASE_CONFIG}") as f:
+              config = yaml.safe_load(f)
+
+          template = config["catalog_templates"][0]
+          current_replaces = template.get("replaces", "")
+          current_skips = template.get("skips", [])
+
+          # The old 'replaces' target becomes a skip entry in the new version
+          if current_replaces and current_replaces not in current_skips:
+              current_skips.insert(0, current_replaces)
+
+          template["replaces"] = "ecr-secret-operator.v${VERSION}"
+          # Remove the new version itself from skips if accidentally present
+          template["skips"] = [s for s in current_skips if s != "ecr-secret-operator.v${VERSION}"]
+
+          with open("${RELEASE_CONFIG}", "w") as f:
+              yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+          PYEOF
+
+          echo "Updated ${RELEASE_CONFIG}:"
+          cat "${RELEASE_CONFIG}"
+
+      - name: Open PR to community-operators-prod
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.OPERATORHUB_PR_TOKEN }}
+          path: community-operators-prod
+          branch: operators/ecr-secret-operator/${{ needs.build-and-push.outputs.version }}
+          commit-message: |
+            operator ecr-secret-operator (${{ needs.build-and-push.outputs.version }})
+
+            Signed-off-by: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>
+          title: "operator ecr-secret-operator (${{ needs.build-and-push.outputs.version }})"
+          body: |
+            Release `${{ github.ref_name }}` of [ecr-secret-operator](https://github.com/rh-mobb/ecr-secret-operator).
+
+            See the [CHANGELOG](https://github.com/rh-mobb/ecr-secret-operator/blob/main/CHANGELOG.md) for details.
+
+            ---
+            *This PR was opened automatically by the [publish-operatorhub](https://github.com/rh-mobb/ecr-secret-operator/actions/workflows/publish-operatorhub.yaml) workflow.*
+          push-to-fork: rh-mobb/community-operators-prod
+
+  # ------------------------------------------------------------------ #
+  # community-operators  (Public OperatorHub — uses semver bundle copy)
+  #
+  # Semver process: copy the bundle version directory, the pipeline
+  # derives the upgrade graph automatically from version numbers.
+  # ------------------------------------------------------------------ #
+  publish-public-operatorhub:
+    name: PR to community-operators (semver)
+    runs-on: ubuntu-latest
+    needs: [sync-forks, build-and-push]
+
+    steps:
+      - name: Download bundle artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bundle
+          path: bundle/
+
+      - name: Checkout community-operators fork
+        uses: actions/checkout@v4
+        with:
+          repository: rh-mobb/community-operators
+          path: community-operators
+          token: ${{ secrets.OPERATORHUB_PR_TOKEN }}
+
+      - name: Copy bundle version directory
+        run: |
+          VERSION=${{ needs.build-and-push.outputs.version }}
+          DEST=community-operators/operators/ecr-secret-operator/${VERSION}
+          mkdir -p "${DEST}"
+          cp -r bundle/manifests "${DEST}/"
+          cp -r bundle/metadata  "${DEST}/"
+
+          CI_YAML=community-operators/operators/ecr-secret-operator/ci.yaml
+          if [ ! -f "${CI_YAML}" ]; then
+            cat > "${CI_YAML}" <<'EOF'
+          addReviewersToPR:
+            enabled: false
+          reviewers: []
+          EOF
+          fi
+
+      - name: Open PR to community-operators
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.OPERATORHUB_PR_TOKEN }}
+          path: community-operators
+          branch: operators/ecr-secret-operator/${{ needs.build-and-push.outputs.version }}
+          commit-message: |
+            operator ecr-secret-operator (${{ needs.build-and-push.outputs.version }})
+
+            Signed-off-by: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>
+          title: "operator ecr-secret-operator (${{ needs.build-and-push.outputs.version }})"
+          body: |
+            Release `${{ github.ref_name }}` of [ecr-secret-operator](https://github.com/rh-mobb/ecr-secret-operator).
+
+            See the [CHANGELOG](https://github.com/rh-mobb/ecr-secret-operator/blob/main/CHANGELOG.md) for details.
+
+            ---
+            *This PR was opened automatically by the [publish-operatorhub](https://github.com/rh-mobb/ecr-secret-operator/actions/workflows/publish-operatorhub.yaml) workflow.*
+          push-to-fork: rh-mobb/community-operators
