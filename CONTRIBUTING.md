@@ -496,7 +496,7 @@ A reusable workflow (`workflow_call`) invoked automatically by `publish-operator
 gh workflow run sync-forks.yaml
 ```
 
-Keeps both forks' `main` branches as exact mirrors of upstream so that release PRs only contain operator-specific changes.
+Uses `gh repo sync` to keep both forks' `main` branches as exact mirrors of upstream. If a fork has diverged with commits not in upstream, the sync will refuse to overwrite — add `--force` to the command in that case.
 
 ### `publish-operatorhub.yaml` — Release and Publish
 
