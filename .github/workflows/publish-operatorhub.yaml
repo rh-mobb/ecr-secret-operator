@@ -53,7 +53,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.23"
           cache: true
 
       - name: Install operator-sdk
@@ -66,8 +66,10 @@ jobs:
       - name: Install kustomize and controller-gen
         run: make kustomize controller-gen
 
-      - name: Set up Podman
-        uses: containers/podman-installer@v1
+      - name: Install Podman
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y podman
 
       - name: Log in to Quay.io
         uses: redhat-actions/podman-login@v1

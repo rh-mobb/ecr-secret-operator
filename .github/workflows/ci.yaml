@@ -21,7 +21,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.23"
           cache: true
 
       - name: Install build tools
@@ -51,7 +51,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.23"
           cache: true
 
       - name: Set up QEMU (for multi-arch builds)
@@ -59,8 +59,10 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
 
-      - name: Set up Podman
-        uses: containers/podman-installer@v1
+      - name: Install Podman
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y podman
 
       - name: Log in to Quay.io
         # Only log in when we have registry credentials (not on forks)
@@ -102,7 +104,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.23"
           cache: true
 
       - name: Install build tools
@@ -142,8 +144,10 @@ jobs:
           operator-sdk bundle validate ./bundle \
             --select-optional name=good-practices
 
-      - name: Set up Podman
-        uses: containers/podman-installer@v1
+      - name: Install Podman
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y podman
 
       - name: Log in to Quay.io
         if: ${{ env.HAS_QUAY_CREDENTIALS == 'true' }}
@@ -153,7 +157,7 @@ jobs:
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
 
-      - name: Build bundle image (no push)
+      - name: Build bundle image
         run: |
           podman build \
             -f bundle.Dockerfile \
