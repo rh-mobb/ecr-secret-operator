@@ -1,0 +1,144 @@
+name: Add New OpenShift Version
+
+# Runs weekly and can be triggered manually.
+# Detects new OpenShift minor versions in community-operators-prod and opens
+# a PR to add them to this operator's FBC catalog_mapping in ci.yaml.
+on:
+  schedule:
+    # Run daily at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+env:
+  COMMUNITY_OPERATORS_PROD_REPO: redhat-openshift-ecosystem/community-operators-prod
+  OPERATOR_NAME: ecr-secret-operator
+  # The minimum OpenShift version this operator supports (must match minKubeVersion)
+  MIN_OCP_VERSION: "4.16"
+
+jobs:
+  detect-and-add-new-version:
+    name: Detect new OpenShift versions and open PR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout community-operators-prod fork
+        uses: actions/checkout@v4
+        with:
+          repository: rh-mobb/community-operators-prod
+          token: ${{ secrets.OPERATORHUB_PR_TOKEN }}
+
+      - name: Sync fork with upstream
+        run: |
+          git remote add upstream \
+            https://github.com/${{ env.COMMUNITY_OPERATORS_PROD_REPO }}.git
+          git fetch upstream
+          git checkout main
+          git reset --hard upstream/main
+          git push origin main --force-with-lease
+
+      - name: Detect new OpenShift catalog versions
+        id: detect
+        run: |
+          # List all vX.Y catalog directories that exist in the upstream repo
+          AVAILABLE=$(ls catalogs/ | grep -E '^v[0-9]+\.[0-9]+$' | sort -V)
+          echo "Available catalogs: ${AVAILABLE}"
+
+          # Read versions already mapped in our operator's ci.yaml
+          MAPPED=$(python3 - <<'PYEOF'
+          import yaml
+
+          with open("operators/${{ env.OPERATOR_NAME }}/ci.yaml") as f:
+              config = yaml.safe_load(f)
+
+          versions = []
+          for mapping in config.get("fbc", {}).get("catalog_mapping", []):
+              versions.extend(mapping.get("catalog_names", []))
+
+          print("\n".join(versions))
+          PYEOF
+          )
+          echo "Already mapped: ${MAPPED}"
+
+          # Find versions that are available but not yet mapped,
+          # and are >= MIN_OCP_VERSION
+          NEW_VERSIONS=""
+          while IFS= read -r version; do
+            # Strip leading 'v' for numeric comparison
+            ver_num="${version#v}"
+            min_num="${{ env.MIN_OCP_VERSION }}"
+
+            # Compare using sort -V: if version sorts after min, include it
+            if [[ "$(printf '%s\n' "$min_num" "$ver_num" | sort -V | head -1)" == "$min_num" ]]; then
+              if ! echo "${MAPPED}" | grep -q "^${version}$"; then
+                NEW_VERSIONS="${NEW_VERSIONS} ${version}"
+              fi
+            fi
+          done <<< "${AVAILABLE}"
+
+          NEW_VERSIONS="${NEW_VERSIONS# }"  # trim leading space
+          echo "New versions to add: '${NEW_VERSIONS}'"
+          echo "new_versions=${NEW_VERSIONS}" >> "$GITHUB_OUTPUT"
+          echo "has_new=$([ -n "${NEW_VERSIONS}" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Add new versions to ci.yaml
+        if: steps.detect.outputs.has_new == 'true'
+        run: |
+          NEW_VERSIONS="${{ steps.detect.outputs.new_versions }}"
+
+          python3 - <<PYEOF
+          import yaml
+
+          ci_yaml_path = "operators/${{ env.OPERATOR_NAME }}/ci.yaml"
+
+          with open(ci_yaml_path) as f:
+              config = yaml.safe_load(f)
+
+          new_versions = "${NEW_VERSIONS}".split()
+
+          # Add each new version to the basic.yaml mapping (supported versions)
+          for mapping in config["fbc"]["catalog_mapping"]:
+              if mapping.get("template_name") == "basic.yaml":
+                  existing = mapping.get("catalog_names", [])
+                  for v in new_versions:
+                      if v not in existing:
+                          existing.append(v)
+                  # Sort versions so they appear in order
+                  mapping["catalog_names"] = sorted(
+                      existing,
+                      key=lambda x: [int(n) for n in x.lstrip("v").split(".")]
+                  )
+                  break
+
+          with open(ci_yaml_path, "w") as f:
+              yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+          print(f"Added {new_versions} to {ci_yaml_path}")
+          PYEOF
+
+          echo "Updated ci.yaml:"
+          cat operators/${{ env.OPERATOR_NAME }}/ci.yaml
+
+      - name: Open PR with new version mapping
+        if: steps.detect.outputs.has_new == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.OPERATORHUB_PR_TOKEN }}
+          branch: >-
+            operators/${{ env.OPERATOR_NAME }}/ocp-${{
+              steps.detect.outputs.new_versions }}
+          commit-message: |
+            operator ${{ env.OPERATOR_NAME }}: add OCP ${{ steps.detect.outputs.new_versions }} catalog mapping
+
+            Signed-off-by: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>
+          title: >-
+            operator ${{ env.OPERATOR_NAME }}: add OCP
+            ${{ steps.detect.outputs.new_versions }} to catalog mapping
+          body: |
+            Adds OpenShift ${{ steps.detect.outputs.new_versions }} to the `basic.yaml` catalog mapping in `ci.yaml` for `${{ env.OPERATOR_NAME }}`.
+
+            This PR was opened automatically by the [add-openshift-version](https://github.com/rh-mobb/ecr-secret-operator/actions/workflows/add-openshift-version.yaml) workflow after detecting new OpenShift catalog directories in upstream `community-operators-prod`.
+
+            **Checklist before merging:**
+            - [ ] Confirm the operator has been tested on OpenShift ${{ steps.detect.outputs.new_versions }}
+            - [ ] Confirm no API deprecations affect this version
+          push-to-fork: rh-mobb/community-operators-prod

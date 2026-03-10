@@ -1,0 +1,52 @@
+name: Sync Forks
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+env:
+  COMMUNITY_OPERATORS_PROD_REPO: redhat-openshift-ecosystem/community-operators-prod
+  COMMUNITY_OPERATORS_REPO: k8s-operatorhub/community-operators
+
+jobs:
+  sync-community-operators-prod:
+    name: Sync rh-mobb/community-operators-prod
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          repository: rh-mobb/community-operators-prod
+          token: ${{ secrets.OPERATORHUB_PR_TOKEN }}
+
+      - name: Sync main with upstream
+        run: |
+          git remote add upstream \
+            https://github.com/${{ env.COMMUNITY_OPERATORS_PROD_REPO }}.git
+          git fetch upstream
+          git checkout main
+          git reset --hard upstream/main
+          git push origin main --force-with-lease
+          echo "✅ rh-mobb/community-operators-prod synced with upstream"
+
+  sync-community-operators:
+    name: Sync rh-mobb/community-operators
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          repository: rh-mobb/community-operators
+          token: ${{ secrets.OPERATORHUB_PR_TOKEN }}
+
+      - name: Sync main with upstream
+        run: |
+          git remote add upstream \
+            https://github.com/${{ env.COMMUNITY_OPERATORS_REPO }}.git
+          git fetch upstream
+          git checkout main
+          git reset --hard upstream/main
+          git push origin main --force-with-lease
+          echo "✅ rh-mobb/community-operators synced with upstream"
