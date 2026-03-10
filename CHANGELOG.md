@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] — 2026-03-10
+
+### Security
+
+- **Updated `golang.org/x/net` from `v0.8.0` to `v0.38.0`.** Resolves multiple CVEs in the `x/net` package, including [CVE-2024-45338](https://pkg.go.dev/vuln/GO-2024-3333) (denial of service via HTML parsing). ([#28](https://github.com/rh-mobb/ecr-secret-operator/pull/28))
+- **Updated `golang.org/x/oauth2` and `google.golang.org/protobuf`.** Routine dependency security maintenance. ([#29](https://github.com/rh-mobb/ecr-secret-operator/pull/29), [#30](https://github.com/rh-mobb/ecr-secret-operator/pull/30))
+
+### Bug Fixes
+
+- **Fixed builder image incompatibility with Go module version format.** The Dockerfile was using `golang:1.19` as the builder, which does not understand the three-part version directive (`go 1.23.0`) introduced in Go 1.21. The builder image has been updated to `golang:1.23` to match the `go` directive in `go.mod`.
+
+### OLM / OperatorHub
+
+- Updated `com.redhat.openshift.versions` annotation format in `bundle/metadata/annotations.yaml` and `bundle.Dockerfile` to the correct `v4.16` format.
+- Updated operator description and maintainer contact to reflect the Red Hat Global Cloud Services SSA Team.
+
+### Changes
+
+- **Added contribution automation workflows.** GitHub Actions workflows for CI, OperatorHub publishing, OpenShift version management, and fork syncing have been added. ([#26](https://github.com/rh-mobb/ecr-secret-operator/pull/26))
+
+---
+
 ## [0.5.0] — 2026-03-05
 
 ### Bug Fixes

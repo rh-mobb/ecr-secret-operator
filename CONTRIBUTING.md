@@ -412,10 +412,12 @@ make bundle IMG=quay.io/rh-mobb/ecr-secret-operator:v<NEW_VERSION>
 > If it was removed, add it back before proceeding.
 
 ```bash
-operator-sdk bundle validate ./bundle --select-optional suite=operatorframework
+operator-sdk bundle validate ./bundle
 operator-sdk bundle validate ./bundle --select-optional name=operatorhub
 operator-sdk bundle validate ./bundle --select-optional name=good-practices
 ```
+
+> **Note:** The `--select-optional suite=operatorframework` and `--select-optional name=operatorframework` selectors were removed in newer versions of `operator-sdk`. The default `operator-sdk bundle validate ./bundle` command now covers the built-in operatorframework checks.
 
 #### 4. Run the full OLM smoke test on OpenShift
 
