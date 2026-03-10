@@ -41,6 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     # Image build is independent of tests — run both in parallel
     needs: []
+    env:
+      HAS_QUAY_CREDENTIALS: ${{ secrets.QUAY_USERNAME != '' && secrets.QUAY_PASSWORD != '' }}
 
     steps:
       - name: Checkout
@@ -62,7 +64,7 @@ jobs:
 
       - name: Log in to Quay.io
         # Only log in when we have registry credentials (not on forks)
-        if: ${{ secrets.QUAY_USERNAME != '' }}
+        if: ${{ env.HAS_QUAY_CREDENTIALS == 'true' }}
         uses: redhat-actions/podman-login@v1
         with:
           registry: quay.io
@@ -81,7 +83,7 @@ jobs:
       - name: Push PR operator image
         # Push a pr-<number> tag so it can be pulled for manual OLM testing.
         # Skipped on forks where QUAY_USERNAME is not available.
-        if: ${{ github.event_name == 'pull_request' && secrets.QUAY_USERNAME != '' }}
+        if: ${{ github.event_name == 'pull_request' && env.HAS_QUAY_CREDENTIALS == 'true' }}
         run: |
           podman manifest push \
             ${{ env.IMAGE_TAG_BASE }}:pr-${{ github.event.pull_request.number }}
@@ -90,6 +92,8 @@ jobs:
     name: Build and validate OLM bundle
     runs-on: ubuntu-latest
     needs: []
+    env:
+      HAS_QUAY_CREDENTIALS: ${{ secrets.QUAY_USERNAME != '' && secrets.QUAY_PASSWORD != '' }}
 
     steps:
       - name: Checkout
@@ -142,7 +146,7 @@ jobs:
         uses: containers/podman-installer@v1
 
       - name: Log in to Quay.io
-        if: ${{ secrets.QUAY_USERNAME != '' }}
+        if: ${{ env.HAS_QUAY_CREDENTIALS == 'true' }}
         uses: redhat-actions/podman-login@v1
         with:
           registry: quay.io
@@ -159,7 +163,7 @@ jobs:
       - name: Push PR bundle image
         # Push a pr-<number> tag so it can be pulled for manual OLM testing.
         # Skipped on forks where QUAY_USERNAME is not available.
-        if: ${{ github.event_name == 'pull_request' && secrets.QUAY_USERNAME != '' }}
+        if: ${{ github.event_name == 'pull_request' && env.HAS_QUAY_CREDENTIALS == 'true' }}
         run: |
           podman push \
             ${{ env.IMAGE_TAG_BASE }}-bundle:ci-${{ github.sha }} \

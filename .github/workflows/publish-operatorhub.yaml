@@ -10,14 +10,34 @@ env:
   COMMUNITY_OPERATORS_REPO: k8s-operatorhub/community-operators
 
 jobs:
+  validate-secrets:
+    name: Validate required secrets are set
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check secrets
+        run: |
+          MISSING=""
+          [ -z "${{ secrets.QUAY_USERNAME }}"       ] && MISSING="${MISSING}\n  - QUAY_USERNAME"
+          [ -z "${{ secrets.QUAY_PASSWORD }}"       ] && MISSING="${MISSING}\n  - QUAY_PASSWORD"
+          [ -z "${{ secrets.OPERATORHUB_PR_TOKEN }}" ] && MISSING="${MISSING}\n  - OPERATORHUB_PR_TOKEN"
+          if [ -n "${MISSING}" ]; then
+            echo "❌ The following required secrets are not set:${MISSING}"
+            echo ""
+            echo "Configure them under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "✅ All required secrets are set"
+
   sync-forks:
     name: Sync community operator forks
+    needs: validate-secrets
     uses: ./.github/workflows/sync-forks.yaml
     secrets: inherit
 
   build-and-push:
     name: Build and push images
     runs-on: ubuntu-latest
+    needs: validate-secrets
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
 
