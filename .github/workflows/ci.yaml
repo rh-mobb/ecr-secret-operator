@@ -131,8 +131,7 @@ jobs:
 
       - name: Validate bundle — operatorframework suite
         run: |
-          operator-sdk bundle validate ./bundle \
-            --select-optional suite=operatorframework
+          operator-sdk bundle validate ./bundle
 
       - name: Validate bundle — operatorhub
         run: |

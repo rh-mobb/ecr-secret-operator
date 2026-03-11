@@ -423,13 +423,22 @@ operator-sdk bundle validate ./bundle --select-optional name=good-practices
 
 Follow the steps in [Testing via OLM](#testing-via-olm) to confirm the operator installs and reconciles correctly via OLM before publishing.
 
-#### 5. Commit and push to main
+#### 5. Open a release PR
+
+Create a branch for the release, push it, and open a pull request targeting `main`:
 
 ```bash
+git checkout -b release/v<NEW_VERSION>
 git add -A
 git commit -s -m "Release v<NEW_VERSION>"
-git push origin main
+git push origin release/v<NEW_VERSION>
+gh pr create \
+  --title "Release v<NEW_VERSION>" \
+  --body "Release prep for v<NEW_VERSION>. See CHANGELOG.md for details." \
+  --base main
 ```
+
+Wait for the CI checks to pass, then merge the PR. Do **not** push directly to `main`.
 
 ### Creating the GitHub Release (triggers automation)
 
