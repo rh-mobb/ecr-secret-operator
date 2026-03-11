@@ -15,6 +15,9 @@ env:
   # The minimum OpenShift version this operator supports (must match minKubeVersion)
   MIN_OCP_VERSION: "4.16"
 
+permissions:
+  contents: read
+
 jobs:
   detect-and-add-new-version:
     name: Detect new OpenShift versions and open PR
