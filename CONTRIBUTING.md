@@ -438,7 +438,7 @@ gh pr create \
   --base main
 ```
 
-Wait for the CI checks to pass, then merge the PR. Do **not** push directly to `main`.
+Wait for the CI checks to pass, then merge the PR. Do **not** attempt to push directly to `main`.
 
 ### Creating the GitHub Release (triggers automation)
 
@@ -492,7 +492,7 @@ Triggers on every push to `main` and every pull request targeting `main`. All th
 |---|---|
 | `test` | Installs build tools, runs `make test` (includes `manifests`, `generate`, `fmt`, `vet`, and the full Ginkgo/envtest suite), uploads `cover.out` as an artifact |
 | `build-image` | Builds the multi-arch (`linux/amd64` + `linux/arm64`) operator image using Podman. On PRs, pushes the image to `quay.io/rh-mobb/ecr-secret-operator:pr-<number>` so it can be pulled for manual OLM testing |
-| `build-bundle` | Installs `operator-sdk`, runs `make bundle`, restores the `com.redhat.openshift.versions` annotation, validates the bundle against the `operatorframework`, `operatorhub`, and `good-practices` validator suites, then builds the bundle image. On PRs, pushes it to `quay.io/rh-mobb/ecr-secret-operator-bundle:pr-<number>` |
+| `build-bundle` | Installs `operator-sdk`, runs `make bundle`, restores the `com.redhat.openshift.versions` annotation, validates the bundle with `operator-sdk bundle validate` (default checks) plus the `operatorhub` and `good-practices` optional suites, then builds the bundle image. On PRs, pushes it to `quay.io/rh-mobb/ecr-secret-operator-bundle:pr-<number>` |
 
 All three jobs must pass before a PR can be merged.
 

@@ -4,6 +4,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: read
+
 env:
   IMAGE_TAG_BASE: quay.io/rh-mobb/ecr-secret-operator
   COMMUNITY_OPERATORS_PROD_REPO: redhat-openshift-ecosystem/community-operators-prod
