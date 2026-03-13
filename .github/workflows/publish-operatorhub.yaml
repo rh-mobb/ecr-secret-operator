@@ -139,6 +139,7 @@ jobs:
     name: PR to community-operators-prod (FBC)
     runs-on: ubuntu-latest
     needs: [sync-forks, build-and-push]
+    environment: operatorhub-publish
 
     steps:
       - name: Download bundle artifact
@@ -329,6 +330,7 @@ jobs:
     name: PR to community-operators (semver)
     runs-on: ubuntu-latest
     needs: [sync-forks, build-and-push]
+    environment: operatorhub-publish
 
     steps:
       - name: Download bundle artifact
