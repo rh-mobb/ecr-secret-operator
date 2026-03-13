@@ -57,8 +57,7 @@ You also need:
 ├── .github/workflows/
 │   ├── ci.yaml                    # PR and push: test, build image, build+validate bundle
 │   ├── publish-operatorhub.yaml   # Release: build, push, open OperatorHub PRs
-│   ├── sync-forks.yaml            # Reusable: sync community-operators forks with upstream
-│   └── add-openshift-version.yaml # Daily: detect new OCP versions, open catalog PR
+│   └── sync-forks.yaml            # Reusable: sync community-operators forks with upstream
 ├── Dockerfile             # Multi-arch operator image build
 ├── Makefile               # All build, test, and release targets
 └── PROJECT                # Operator-SDK / Kubebuilder project metadata
@@ -155,18 +154,16 @@ First, follow [docs/iam_assume_role.md](docs/iam_assume_role.md) to create an IA
 oc new-project ecr-secret-operator
 
 # Replace with your IAM role ARN
-cat <<EOF > /tmp/credentials
+CREDENTIALS_FILE=$(mktemp)
+cat <<EOF > "${CREDENTIALS_FILE}"
 [default]
 role_arn = arn:aws:iam::<ACCOUNT_ID>:role/<ROLE_NAME>
 web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 EOF
 
 oc create secret generic aws-ecr-cloud-credentials \
-  --from-file=credentials=/tmp/credentials \
+  --from-file=credentials="${CREDENTIALS_FILE}" \
   -n ecr-secret-operator
-```
-
-### 2. Deploy
 
 ```bash
 make deploy IMG=quay.io/rh-mobb/ecr-secret-operator:v<VERSION>
@@ -248,14 +245,15 @@ Ensure the CI workflow has completed and both images are publicly readable on qu
 oc new-project ecr-secret-operator
 
 # Replace with your IAM role ARN
-cat <<EOF > /tmp/credentials
+CREDENTIALS_FILE=$(mktemp)
+cat <<EOF > "${CREDENTIALS_FILE}"
 [default]
 role_arn = arn:aws:iam::<ACCOUNT_ID>:role/<ROLE_NAME>
 web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 EOF
 
 oc create secret generic aws-ecr-cloud-credentials \
-  --from-file=credentials=/tmp/credentials \
+  --from-file=credentials="${CREDENTIALS_FILE}" \
   -n ecr-secret-operator
 ```
 
@@ -337,14 +335,15 @@ Ensure the bundle image is publicly readable on quay.io before proceeding.
 oc new-project ecr-secret-operator
 
 # Replace with your IAM role ARN
-cat <<EOF > /tmp/credentials
+CREDENTIALS_FILE=$(mktemp)
+cat <<EOF > "${CREDENTIALS_FILE}"
 [default]
 role_arn = arn:aws:iam::<ACCOUNT_ID>:role/<ROLE_NAME>
 web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 EOF
 
 oc create secret generic aws-ecr-cloud-credentials \
-  --from-file=credentials=/tmp/credentials \
+  --from-file=credentials="${CREDENTIALS_FILE}" \
   -n ecr-secret-operator
 
 operator-sdk run bundle quay.io/rh-mobb/ecr-secret-operator-bundle:v<VERSION> \
@@ -467,7 +466,21 @@ gh run watch  # follow the active run
 
 ### After the workflow completes
 
-Two PRs will be opened automatically — one to each community repo. Both will run their own CI pipelines. Once the CI checks pass, the PRs require human review and approval by the repo maintainers before merging.
+The `build-and-push` job builds and pushes the multi-arch operator image to `quay.io/rh-mobb/ecr-secret-operator:v<NEW_VERSION>` before the publish jobs run. This is intentional — it gives a maintainer the opportunity to pull and smoke-test the exact image that will be published before the OperatorHub PRs are opened.
+
+Both `publish-openshift-operatorhub` and `publish-public-operatorhub` target the `operatorhub-publish` GitHub Actions environment, which requires a manual approval from a designated reviewer before either job will start. The workflow will pause and send a notification to the reviewer(s) configured on that environment.
+
+**To approve and proceed:**
+
+1. Go to the Actions tab and open the running `Publish to OperatorHub` workflow
+2. Pull and test the release image:
+   ```bash
+   podman pull quay.io/rh-mobb/ecr-secret-operator:v<NEW_VERSION>
+   ```
+3. Run the OLM smoke test (see [Testing via OLM](#testing-via-olm))
+4. Click **Review pending deployments → Approve and deploy** in the workflow UI
+
+Once approved, both publish jobs will run in parallel and open PRs — one to each community repo.
 
 Monitor the PR checks:
 
@@ -482,7 +495,7 @@ Once both PRs are merged, the new version will appear in OperatorHub within a fe
 
 ## GitHub Actions Workflows
 
-Four workflows live in `.github/workflows/`:
+Three workflows live in `.github/workflows/`:
 
 ### `ci.yaml` — Continuous Integration
 
@@ -520,9 +533,11 @@ release published
       │       ├── sync community-operators-prod
       │       └── sync community-operators
       │
-      ├── build-and-push            ← builds images, generates bundle
+      ├── build-and-push            ← builds images, generates bundle, pushes to quay.io
       │
       └── (both of the above complete)
+              │
+              ⏸ awaiting approval (environment: operatorhub-publish)
               │
               ├── publish-openshift-operatorhub  ← FBC PR to community-operators-prod
               └── publish-public-operatorhub     ← semver PR to community-operators
@@ -532,26 +547,8 @@ release published
 |---|---|
 | `sync-forks` | Calls `sync-forks.yaml` to sync both fork `main` branches with upstream via `gh repo sync` before any changes are made |
 | `build-and-push` | Builds multi-arch operator image, generates and validates OLM bundle, builds and pushes bundle image, uploads bundle as artifact |
-| `publish-openshift-operatorhub` | Copies bundle into the FBC-based `community-operators-prod` fork, updates `catalog-templates/basic.yaml` and `release-config.yaml`, opens PR |
-| `publish-public-operatorhub` | Copies bundle into the semver-based `community-operators` fork, opens PR |
-
-### `add-openshift-version.yaml` — New OpenShift Version Detection
-
-Runs daily at 06:00 UTC and can also be triggered manually. Detects when Red Hat adds a new OpenShift minor version catalog directory (e.g. `v4.22`) to `community-operators-prod` that isn't yet listed in this operator's `ci.yaml` `catalog_mapping`, and automatically opens a PR to add it.
-
-The workflow:
-1. Syncs the `rh-mobb/community-operators-prod` fork with upstream
-2. Lists all `vX.Y` catalog directories present in the upstream `catalogs/` directory
-3. Compares them against the versions already in `operators/ecr-secret-operator/ci.yaml`
-4. For any new version at or above `v4.16` (the operator's `minKubeVersion`), adds it to the `basic.yaml` catalog mapping
-5. Opens a PR to `community-operators-prod` with a checklist reminding the reviewer to confirm the operator has been tested on the new version
-
-```bash
-# Trigger manually if you want to check for new versions immediately
-gh workflow run add-openshift-version.yaml
-```
-
-> **Note:** The PR opened by this workflow adds the new version to the FBC catalog mapping only. It does **not** create a new operator release — the existing latest bundle will be made available on the new OpenShift version. If the new OpenShift version requires code changes (e.g. due to API deprecations), create a full release instead.
+| `publish-openshift-operatorhub` | Pauses for manual approval (environment gate), then copies bundle into the FBC-based `community-operators-prod` fork, updates `catalog-templates/basic.yaml` and `release-config.yaml`, opens PR |
+| `publish-public-operatorhub` | Pauses for manual approval (environment gate), then copies bundle into the semver-based `community-operators` fork, opens PR |
 
 ### Required repository secrets
 
@@ -562,6 +559,10 @@ Configure these under **Settings → Secrets and variables → Actions**:
 | `QUAY_USERNAME` | Quay.io robot account username (e.g. `rh-mobb+robot`) |
 | `QUAY_PASSWORD` | Quay.io robot account token |
 | `OPERATORHUB_PR_TOKEN` | **Classic** Personal Access Token belonging to `rh-mobb-bot` with `public_repo` scope (required to open PRs against the upstream community operator repos via `gh pr create`) |
+
+### Required environment: `operatorhub-publish`
+
+The `publish-openshift-operatorhub` and `publish-public-operatorhub` jobs target a GitHub Actions environment named `operatorhub-publish`. This environment is configured with required reviewers, which causes the workflow to pause for manual approval before opening any OperatorHub PRs.
 
 ### Required bot account and forks
 
