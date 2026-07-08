@@ -1,0 +1,194 @@
+name: E2E Tests
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  IMAGE_TAG_BASE: quay.io/rh-mobb/ecr-secret-operator
+  AWS_REGION: us-east-2
+  CLUSTER_NAME_PREFIX: ecr-e2e
+
+jobs:
+  provision:
+    name: Provision ROSA HCP cluster and ECR
+    runs-on: ubuntu-latest
+    environment: e2e-test
+    timeout-minutes: 60
+    outputs:
+      cluster_name: ${{ steps.tf-output.outputs.cluster_name }}
+      cluster_api_url: ${{ steps.tf-output.outputs.cluster_api_url }}
+      cluster_admin_password: ${{ steps.tf-output.outputs.cluster_admin_password }}
+      ecr_registry: ${{ steps.tf-output.outputs.ecr_registry }}
+      operator_ecr_role_arn: ${{ steps.tf-output.outputs.operator_ecr_role_arn }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::660250927410:role/ecr-secret-operator-e2e
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: test/e2e/terraform
+        run: terraform init -backend-config="key=pr-${{ github.event.pull_request.number }}/terraform.tfstate"
+
+      - name: Terraform Apply
+        working-directory: test/e2e/terraform
+        env:
+          RHCS_CLIENT_ID: ${{ secrets.RHCS_CLIENT_ID }}
+          RHCS_CLIENT_SECRET: ${{ secrets.RHCS_CLIENT_SECRET }}
+        run: |
+          terraform apply -auto-approve \
+            -var="cluster_name=${{ env.CLUSTER_NAME_PREFIX }}-${{ github.event.pull_request.number }}" \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="pr_number=${{ github.event.pull_request.number }}"
+
+      - name: Extract Terraform outputs
+        id: tf-output
+        working-directory: test/e2e/terraform
+        run: |
+          echo "cluster_name=$(terraform output -raw cluster_name)" >> "$GITHUB_OUTPUT"
+          echo "cluster_api_url=$(terraform output -raw cluster_api_url)" >> "$GITHUB_OUTPUT"
+          echo "cluster_admin_password=$(terraform output -raw cluster_admin_password)" >> "$GITHUB_OUTPUT"
+          echo "ecr_registry=$(terraform output -raw ecr_registry_url)" >> "$GITHUB_OUTPUT"
+          echo "operator_ecr_role_arn=$(terraform output -raw operator_ecr_role_arn)" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Run e2e tests
+    runs-on: ubuntu-latest
+    needs: [provision]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::660250927410:role/ecr-secret-operator-e2e
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install CLI tools
+        run: |
+          curl -sSL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
+            | sudo tar xzf - -C /usr/local/bin oc kubectl
+
+          OPERATOR_SDK_VERSION=v1.42.0
+          curl -sSLo /usr/local/bin/operator-sdk \
+            "https://github.com/operator-framework/operator-sdk/releases/download/${OPERATOR_SDK_VERSION}/operator-sdk_linux_amd64"
+          chmod +x /usr/local/bin/operator-sdk
+
+      - name: Log in to ROSA cluster
+        run: |
+          oc login "${{ needs.provision.outputs.cluster_api_url }}" \
+            --username cluster-admin \
+            --password "${{ needs.provision.outputs.cluster_admin_password }}" \
+            --insecure-skip-tls-verify=true
+
+      - name: Create operator namespace and AWS credentials
+        run: |
+          NAMESPACE="ecr-secret-operator"
+          oc create namespace "${NAMESPACE}" --dry-run=client -o yaml | oc apply -f -
+
+          # Create credentials file for STS role assumption via OIDC
+          cat > /tmp/credentials <<EOF
+          [default]
+          role_arn = ${{ needs.provision.outputs.operator_ecr_role_arn }}
+          web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
+          EOF
+
+          oc create secret generic aws-ecr-cloud-credentials \
+            --namespace="${NAMESPACE}" \
+            --from-file=credentials=/tmp/credentials \
+            --dry-run=client -o yaml | oc apply -f -
+
+      - name: Install operator via OLM bundle
+        run: |
+          operator-sdk run bundle \
+            "${{ env.IMAGE_TAG_BASE }}-bundle:pr-${{ github.event.pull_request.number }}" \
+            --namespace ecr-secret-operator \
+            --timeout 10m
+
+      - name: Wait for operator readiness
+        run: |
+          oc rollout status deployment/ecr-secret-operator-controller-manager \
+            --namespace ecr-secret-operator \
+            --timeout=300s
+
+      - name: Run e2e test suite
+        env:
+          ECR_REGISTRY: ${{ needs.provision.outputs.ecr_registry }}
+          TEST_NAMESPACE: ecr-secret-operator
+          AWS_REGION: us-east-2
+        run: test/e2e/scripts/run-e2e.sh
+
+      - name: Collect debug logs on failure
+        if: failure()
+        run: |
+          echo "=== Operator logs ==="
+          oc logs deployment/ecr-secret-operator-controller-manager \
+            --namespace ecr-secret-operator \
+            --tail=200 || true
+          echo "=== Events ==="
+          oc get events --namespace ecr-secret-operator --sort-by='.lastTimestamp' || true
+          echo "=== ECR Secret CRs ==="
+          oc get secrets.ecr.mobb.redhat.com --all-namespaces -o yaml || true
+          echo "=== ArgoHelmRepoSecret CRs ==="
+          oc get argohelmreposecrets.ecr.mobb.redhat.com --all-namespaces -o yaml || true
+          echo "=== Core secrets ==="
+          oc get secrets --namespace ecr-secret-operator || true
+
+      - name: Cleanup operator
+        if: always()
+        run: |
+          operator-sdk cleanup ecr-secret-operator --namespace ecr-secret-operator || true
+
+  cleanup:
+    name: Destroy infrastructure
+    runs-on: ubuntu-latest
+    needs: [provision, test]
+    if: always() && !contains(github.event.pull_request.labels.*.name, 'e2e-keep-infra')
+    environment: e2e-test
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::660250927410:role/ecr-secret-operator-e2e
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: test/e2e/terraform
+        run: terraform init -backend-config="key=pr-${{ github.event.pull_request.number }}/terraform.tfstate"
+
+      - name: Terraform Destroy
+        working-directory: test/e2e/terraform
+        env:
+          RHCS_CLIENT_ID: ${{ secrets.RHCS_CLIENT_ID }}
+          RHCS_CLIENT_SECRET: ${{ secrets.RHCS_CLIENT_SECRET }}
+        run: |
+          terraform destroy -auto-approve \
+            -var="cluster_name=${{ env.CLUSTER_NAME_PREFIX }}-${{ github.event.pull_request.number }}" \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="pr_number=${{ github.event.pull_request.number }}"
