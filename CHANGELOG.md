@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-07-08
+
+### Features
+
+- **Added end-to-end test pipeline with ROSA HCP, ECR, and GitHub Actions.** Provisions a ROSA HCP cluster and ECR repository via Terraform, installs the operator through OLM, and runs positive/negative tests against real AWS infrastructure. The pipeline is gated by a GitHub environment protection rule requiring CODEOWNER approval before provisioning. ([#36](https://github.com/rh-mobb/ecr-secret-operator/pull/36))
+
+### Changes
+
+- **Upgraded Go to 1.26 and modernized all dependencies.** Major dependency upgrades: controller-runtime `v0.14.1` → `v0.24.1`, `k8s.io/*` `v0.26.2` → `v0.36.2`. Migrated from AWS SDK v1 (end-of-support) to `aws-sdk-go-v2`. Unified test framework from mixed Ginkgo v1/v2 to Ginkgo v2 only. Updated Makefile tooling: `controller-gen` `v0.21.0`, `kustomize` `v5.8.1`, `setup-envtest` `release-0.24`, `ENVTEST_K8S_VERSION` `1.31`, `opm` `v1.49.0`. ([#35](https://github.com/rh-mobb/ecr-secret-operator/pull/35))
+- **Updated GitHub Actions to latest major versions.** `actions/checkout` v4 → v7, `actions/setup-go` v5 → v6, `actions/upload-artifact` v4 → v7, `actions/download-artifact` v4 → v7, `aws-actions/configure-aws-credentials` v4 → v6, `docker/setup-qemu-action` v3 → v4, `hashicorp/setup-terraform` v3 → v4. Resolves Node.js 20 deprecation warnings. ([#37](https://github.com/rh-mobb/ecr-secret-operator/pull/37))
+- **Removed OCP auto-promotion workflow and added approval gate to release pipeline.** The `add-openshift-version` workflow has been removed (OpenShift version promotion is now handled by `fbc.version_promotion_strategy: always`). Both `publish-*` jobs now require `operatorhub-publish` environment approval before opening OperatorHub PRs. ([#32](https://github.com/rh-mobb/ecr-secret-operator/pull/32))
+- **Added VPC endpoint cleanup to reduce e2e destroy failures.** Cleans up orphaned VPC endpoints and security groups between cluster and VPC destruction. ([#38](https://github.com/rh-mobb/ecr-secret-operator/pull/38))
+
+### Security
+
+- **Added explicit permissions to all GitHub Actions workflows** to satisfy CodeQL `actions/missing-workflow-permissions` rules. ([#31](https://github.com/rh-mobb/ecr-secret-operator/pull/31))
+- **Added main branch protection restrictions.**
+
+---
+
 ## [0.5.1] — 2026-03-10
 
 ### Security
