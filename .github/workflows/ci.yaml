@@ -122,7 +122,7 @@ jobs:
 
       - name: Generate OLM bundle
         run: |
-          make bundle IMG=${{ env.IMAGE_TAG_BASE }}:ci-${{ github.sha }}
+          make bundle IMG=${{ env.IMAGE_TAG_BASE }}:pr-${{ github.event.pull_request.number || github.sha }}
 
       - name: Restore com.redhat.openshift.versions annotation
         # make bundle regenerates annotations.yaml and drops custom annotations
@@ -163,14 +163,11 @@ jobs:
         run: |
           podman build \
             -f bundle.Dockerfile \
-            -t ${{ env.IMAGE_TAG_BASE }}-bundle:ci-${{ github.sha }} \
+            -t ${{ env.IMAGE_TAG_BASE }}-bundle:pr-${{ github.event.pull_request.number || github.sha }} \
             .
 
       - name: Push PR bundle image
-        # Push a pr-<number> tag so it can be pulled for manual OLM testing.
-        # Skipped on forks where QUAY_USERNAME is not available.
         if: ${{ github.event_name == 'pull_request' && env.HAS_QUAY_CREDENTIALS == 'true' }}
         run: |
           podman push \
-            ${{ env.IMAGE_TAG_BASE }}-bundle:ci-${{ github.sha }} \
             ${{ env.IMAGE_TAG_BASE }}-bundle:pr-${{ github.event.pull_request.number }}

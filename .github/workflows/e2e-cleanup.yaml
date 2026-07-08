@@ -1,0 +1,106 @@
+name: E2E Cleanup
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number whose infrastructure to destroy"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+  id-token: write
+
+env:
+  AWS_REGION: us-east-2
+  CLUSTER_NAME_PREFIX: ecr-e2e
+
+jobs:
+  check-permission:
+    name: Verify authorization
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request &&
+       contains(github.event.comment.body, '/destroy-e2e'))
+    outputs:
+      authorized: ${{ steps.check.outputs.authorized }}
+      pr_number: ${{ steps.pr.outputs.number }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check if commenter is authorized
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "authorized=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          COMMENTER="${{ github.event.comment.user.login }}"
+          if grep -q "@${COMMENTER}" CODEOWNERS 2>/dev/null; then
+            echo "authorized=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::User ${COMMENTER} is not in CODEOWNERS"
+          fi
+
+  destroy:
+    name: Destroy e2e infrastructure
+    runs-on: ubuntu-latest
+    needs: [check-permission]
+    if: needs.check-permission.outputs.authorized == 'true'
+    environment: e2e-test
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::660250927410:role/ecr-secret-operator-e2e
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: test/e2e/terraform
+        run: terraform init -backend-config="key=pr-${{ needs.check-permission.outputs.pr_number }}/terraform.tfstate"
+
+      - name: Terraform Destroy
+        working-directory: test/e2e/terraform
+        env:
+          RHCS_CLIENT_ID: ${{ secrets.RHCS_CLIENT_ID }}
+          RHCS_CLIENT_SECRET: ${{ secrets.RHCS_CLIENT_SECRET }}
+        run: |
+          terraform destroy -auto-approve \
+            -var="cluster_name=${{ env.CLUSTER_NAME_PREFIX }}-${{ needs.check-permission.outputs.pr_number }}" \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="pr_number=${{ needs.check-permission.outputs.pr_number }}"
+
+      - name: React to comment
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+            -f content='+1'
