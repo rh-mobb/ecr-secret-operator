@@ -46,7 +46,7 @@ jobs:
 
     steps:
       - name: Checkout operator repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Parse version from release tag
         id: version
@@ -54,7 +54,7 @@ jobs:
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.26"
           cache: true
@@ -121,7 +121,7 @@ jobs:
             BUNDLE_IMG=${{ env.IMAGE_TAG_BASE }}-bundle:${{ github.ref_name }}
 
       - name: Upload bundle as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bundle
           path: bundle/
@@ -143,13 +143,13 @@ jobs:
 
     steps:
       - name: Download bundle artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: bundle
           path: bundle/
 
       - name: Checkout community-operators-prod upstream
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: redhat-openshift-ecosystem/community-operators-prod
           path: community-operators-prod
@@ -334,13 +334,13 @@ jobs:
 
     steps:
       - name: Download bundle artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: bundle
           path: bundle/
 
       - name: Checkout community-operators upstream
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: k8s-operatorhub/community-operators
           path: community-operators
