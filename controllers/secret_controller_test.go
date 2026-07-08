@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/rh-mobb/ecr-secret-operator/api/v1alpha1"
 	"github.com/rh-mobb/ecr-secret-operator/ecr"

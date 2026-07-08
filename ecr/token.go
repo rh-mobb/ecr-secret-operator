@@ -1,13 +1,13 @@
 package ecr
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ecr"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
 )
 
 type TokenRetriever interface {
@@ -22,12 +22,14 @@ func NewDefaultTokenRetriever() *DefaultTokenRetriever {
 }
 
 func (r *DefaultTokenRetriever) GetToken(region string) (string, error) {
-	s := session.Must(session.NewSession(&aws.Config{
-		Region: aws.String(region)},
-	))
-	svc := ecr.New(s)
-	input := &ecr.GetAuthorizationTokenInput{}
-	result, err := svc.GetAuthorizationToken(input)
+	cfg, err := config.LoadDefaultConfig(context.TODO(),
+		config.WithRegion(region),
+	)
+	if err != nil {
+		return "", err
+	}
+	svc := ecr.NewFromConfig(cfg)
+	result, err := svc.GetAuthorizationToken(context.TODO(), &ecr.GetAuthorizationTokenInput{})
 	if err != nil {
 		return "", err
 	}
