@@ -43,11 +43,53 @@ resource "random_password" "cluster_admin" {
   override_special = "!#%&*()-_=+[]{}:?"
 }
 
+# --- VPC endpoint cleanup (runs between cluster and VPC destroy) ---
+
+resource "null_resource" "vpc_endpoint_cleanup" {
+  triggers = {
+    vpc_id = module.vpc.vpc_id
+    region = var.aws_region
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = <<-EOT
+      echo "Cleaning up orphaned VPC endpoints and security groups..."
+
+      ENDPOINTS=$(aws ec2 describe-vpc-endpoints \
+        --filters "Name=vpc-id,Values=${self.triggers.vpc_id}" \
+        --query 'VpcEndpoints[].VpcEndpointId' \
+        --output text --region ${self.triggers.region} 2>/dev/null || true)
+
+      if [ -n "$ENDPOINTS" ] && [ "$ENDPOINTS" != "None" ]; then
+        echo "Deleting VPC endpoints: $ENDPOINTS"
+        aws ec2 delete-vpc-endpoints \
+          --vpc-endpoint-ids $ENDPOINTS \
+          --region ${self.triggers.region}
+        echo "Waiting for endpoints to be deleted..."
+        sleep 30
+      fi
+
+      for sg in $(aws ec2 describe-security-groups \
+        --filters "Name=vpc-id,Values=${self.triggers.vpc_id}" \
+        --query 'SecurityGroups[?GroupName!=`default`].GroupId' \
+        --output text --region ${self.triggers.region} 2>/dev/null); do
+        echo "Deleting security group: $sg"
+        aws ec2 delete-security-group --group-id "$sg" --region ${self.triggers.region} 2>/dev/null || true
+      done
+
+      echo "VPC endpoint cleanup complete."
+    EOT
+  }
+}
+
 # --- ROSA HCP cluster ---
 
 module "rosa_hcp" {
   source  = "terraform-redhat/rosa-hcp/rhcs"
   version = "1.7.4"
+
+  depends_on = [null_resource.vpc_endpoint_cleanup]
 
   cluster_name           = var.cluster_name
   openshift_version      = local.openshift_version
