@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	ecrv1alpha1 "github.com/rh-mobb/ecr-secret-operator/api/v1alpha1"
 	"github.com/rh-mobb/ecr-secret-operator/controllers"
@@ -75,24 +76,35 @@ func main() {
 			"the manager will watch and manage resources in all Namespaces")
 	}
 	options := ctrl.Options{
-		Scheme:                 scheme,
-		MetricsBindAddress:     metricsAddr,
-		Port:                   9443,
+		Scheme: scheme,
+		Metrics: metricsserver.Options{
+			BindAddress: metricsAddr,
+		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "bc9c1120.mobb.redhat.com",
-		Namespace:              watchNamespace,
+	}
+
+	if watchNamespace != "" {
+		if strings.Contains(watchNamespace, ",") {
+			setupLog.Info("manager set up with multiple namespaces", "namespaces", watchNamespace)
+			defaultNamespaces := make(map[string]cache.Config)
+			for _, ns := range strings.Split(watchNamespace, ",") {
+				defaultNamespaces[strings.TrimSpace(ns)] = cache.Config{}
+			}
+			options.Cache = cache.Options{
+				DefaultNamespaces: defaultNamespaces,
+			}
+		} else {
+			options.Cache = cache.Options{
+				DefaultNamespaces: map[string]cache.Config{
+					watchNamespace: {},
+				},
+			}
+		}
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), options)
-
-	if strings.Contains(watchNamespace, ",") {
-		setupLog.Info("manager set up with multiple namespaces", "namespaces", watchNamespace)
-		// configure cluster-scoped with MultiNamespacedCacheBuilder
-		options.Namespace = ""
-		options.NewCache = cache.MultiNamespacedCacheBuilder(strings.Split(watchNamespace, ","))
-	}
-
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
