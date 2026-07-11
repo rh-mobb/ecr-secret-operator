@@ -1,11 +1,26 @@
 name: E2E Tests
 
 on:
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to run against"
+        required: true
+        type: string
+      command:
+        description: "Command to run"
+        required: true
+        type: choice
+        options:
+          - run
+          - debug
+          - destroy
+          - force-destroy
+        default: run
 
 permissions:
   contents: read
+  pull-requests: read
   id-token: write
 
 env:
@@ -14,9 +29,33 @@ env:
   CLUSTER_NAME_PREFIX: ecr-e2e
 
 jobs:
+  resolve-pr:
+    name: Resolve PR metadata
+    runs-on: ubuntu-latest
+    outputs:
+      pr_head_sha: ${{ steps.pr.outputs.head_sha }}
+      labels: ${{ steps.pr.outputs.labels }}
+    steps:
+      - name: Look up PR head SHA and labels
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HEAD_SHA=$(gh pr view "${{ inputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
+            --json headRefOid --jq '.headRefOid')
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+
+          LABELS=$(gh pr view "${{ inputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
+            --json labels --jq '[.labels[].name] | join(",")')
+          echo "labels=${LABELS}" >> "$GITHUB_OUTPUT"
+
   provision:
     name: Provision ROSA HCP cluster and ECR
     runs-on: ubuntu-latest
+    needs: [resolve-pr]
+    if: contains(fromJSON('["run","debug"]'), inputs.command)
     environment: e2e-test
     timeout-minutes: 60
     outputs:
@@ -26,8 +65,10 @@ jobs:
       ecr_registry: ${{ steps.tf-output.outputs.ecr_registry }}
       operator_ecr_role_arn: ${{ steps.tf-output.outputs.operator_ecr_role_arn }}
     steps:
-      - name: Checkout
+      - name: Checkout PR head
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve-pr.outputs.pr_head_sha }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -43,7 +84,7 @@ jobs:
 
       - name: Terraform Init
         working-directory: test/e2e/terraform
-        run: terraform init -backend-config="key=pr-${{ github.event.pull_request.number }}/terraform.tfstate"
+        run: terraform init -backend-config="key=pr-${{ inputs.pr_number }}/terraform.tfstate"
 
       - name: Terraform Apply
         working-directory: test/e2e/terraform
@@ -52,9 +93,9 @@ jobs:
           RHCS_CLIENT_SECRET: ${{ secrets.RHCS_CLIENT_SECRET }}
         run: |
           terraform apply -auto-approve \
-            -var="cluster_name=${{ env.CLUSTER_NAME_PREFIX }}-${{ github.event.pull_request.number }}" \
+            -var="cluster_name=${{ env.CLUSTER_NAME_PREFIX }}-${{ inputs.pr_number }}" \
             -var="aws_region=${{ env.AWS_REGION }}" \
-            -var="pr_number=${{ github.event.pull_request.number }}"
+            -var="pr_number=${{ inputs.pr_number }}"
 
       - name: Extract Terraform outputs
         id: tf-output
@@ -69,10 +110,12 @@ jobs:
   test:
     name: Run e2e tests
     runs-on: ubuntu-latest
-    needs: [provision]
+    needs: [resolve-pr, provision]
     steps:
-      - name: Checkout
+      - name: Checkout PR head
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve-pr.outputs.pr_head_sha }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -117,7 +160,7 @@ jobs:
       - name: Install operator via OLM bundle
         run: |
           operator-sdk run bundle \
-            "${{ env.IMAGE_TAG_BASE }}-bundle:pr-${{ github.event.pull_request.number }}" \
+            "${{ env.IMAGE_TAG_BASE }}-bundle:pr-${{ inputs.pr_number }}" \
             --namespace ecr-secret-operator \
             --timeout 10m
 
@@ -155,16 +198,22 @@ jobs:
         run: |
           operator-sdk cleanup ecr-secret-operator --namespace ecr-secret-operator || true
 
-  cleanup:
+  destroy:
     name: Destroy infrastructure
     runs-on: ubuntu-latest
-    needs: [provision, test]
-    if: always() && !contains(github.event.pull_request.labels.*.name, 'e2e-keep-infra')
+    needs: [resolve-pr, provision, test]
+    if: >-
+      always() &&
+      inputs.command != 'debug' &&
+      !(inputs.command == 'run' &&
+        contains(needs.resolve-pr.outputs.labels, 'e2e-keep-infra'))
     environment: e2e-test
     timeout-minutes: 30
     steps:
-      - name: Checkout
+      - name: Checkout PR head
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve-pr.outputs.pr_head_sha }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -180,7 +229,29 @@ jobs:
 
       - name: Terraform Init
         working-directory: test/e2e/terraform
-        run: terraform init -backend-config="key=pr-${{ github.event.pull_request.number }}/terraform.tfstate"
+        run: terraform init -backend-config="key=pr-${{ inputs.pr_number }}/terraform.tfstate"
+
+      - name: Remove ROSA cluster and dependents from Terraform state
+        if: inputs.command == 'force-destroy'
+        working-directory: test/e2e/terraform
+        run: |
+          echo "Removing ROSA cluster and dependent resources from Terraform state..."
+          # The IAM role and OIDC data source reference module.rosa_hcp outputs,
+          # so they must be removed too — Terraform can't resolve those refs once
+          # the module is gone from state.
+          for resource in module.rosa_hcp aws_iam_role.operator_ecr aws_iam_role_policy.operator_ecr; do
+            terraform state rm "$resource" 2>/dev/null \
+              && echo "Removed $resource" \
+              || echo "$resource not in state, skipping"
+          done
+
+      - name: Clean up orphaned IAM roles
+        if: inputs.command == 'force-destroy'
+        run: |
+          ROLE_NAME="${{ env.CLUSTER_NAME_PREFIX }}-${{ inputs.pr_number }}-ecr-operator"
+          echo "Deleting IAM role ${ROLE_NAME} (if it exists)..."
+          aws iam delete-role-policy --role-name "$ROLE_NAME" --policy-name ecr-get-token 2>/dev/null || true
+          aws iam delete-role --role-name "$ROLE_NAME" 2>/dev/null || true
 
       - name: Terraform Destroy
         working-directory: test/e2e/terraform
@@ -189,6 +260,6 @@ jobs:
           RHCS_CLIENT_SECRET: ${{ secrets.RHCS_CLIENT_SECRET }}
         run: |
           terraform destroy -auto-approve \
-            -var="cluster_name=${{ env.CLUSTER_NAME_PREFIX }}-${{ github.event.pull_request.number }}" \
+            -var="cluster_name=${{ env.CLUSTER_NAME_PREFIX }}-${{ inputs.pr_number }}" \
             -var="aws_region=${{ env.AWS_REGION }}" \
-            -var="pr_number=${{ github.event.pull_request.number }}"
+            -var="pr_number=${{ inputs.pr_number }}"

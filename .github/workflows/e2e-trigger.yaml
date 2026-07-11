@@ -1,0 +1,68 @@
+name: "E2E: Trigger"
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+  actions: write
+
+jobs:
+  dispatch:
+    name: Authorize and dispatch
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/e2e')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Parse command
+        id: parse
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          if echo "$COMMENT_BODY" | grep -qi '/e2e force-destroy'; then
+            echo "command=force-destroy" >> "$GITHUB_OUTPUT"
+          elif echo "$COMMENT_BODY" | grep -qi '/e2e destroy'; then
+            echo "command=destroy" >> "$GITHUB_OUTPUT"
+          elif echo "$COMMENT_BODY" | grep -qi '/e2e debug'; then
+            echo "command=debug" >> "$GITHUB_OUTPUT"
+          else
+            echo "command=run" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check if commenter is authorized
+        id: check
+        env:
+          COMMENTER: ${{ github.event.comment.user.login }}
+        run: |
+          if grep -q "@${COMMENTER}" CODEOWNERS 2>/dev/null; then
+            echo "authorized=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::User ${COMMENTER} is not in CODEOWNERS"
+          fi
+
+      - name: React to comment
+        if: steps.check.outputs.authorized == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api "repos/${REPO}/issues/comments/${COMMENT_ID}/reactions" \
+            -f content='rocket'
+
+      - name: Dispatch e2e workflow
+        if: steps.check.outputs.authorized == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run e2e.yaml \
+            -f pr_number="${{ github.event.issue.number }}" \
+            -f command="${{ steps.parse.outputs.command }}"

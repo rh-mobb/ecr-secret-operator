@@ -22,7 +22,7 @@ Thank you for your interest in contributing. This guide covers everything you ne
 
 | Tool | Minimum Version | Install |
 |---|---|---|
-| Go | 1.19 | https://go.dev/dl |
+| Go | 1.26 | https://go.dev/dl |
 | Podman | 4.x | https://podman.io/docs/installation |
 | kubectl / oc | any | https://docs.openshift.com/container-platform/latest/cli_reference/openshift_cli/getting-started-cli.html |
 | operator-sdk | v1.28+ | https://sdk.operatorframework.io/docs/installation |
@@ -54,8 +54,14 @@ You also need:
 ├── docs/                  # IAM setup guides
 ├── ecr/                   # AWS ECR token generation
 ├── samples/               # End-user sample CRs
+├── test/e2e/                  # End-to-end test suite (see test/e2e/README.md)
+│   ├── manifests/             # CR templates for e2e tests
+│   ├── scripts/               # Test runner script
+│   └── terraform/             # Infrastructure-as-code for ROSA HCP cluster, ECR, IAM
 ├── .github/workflows/
 │   ├── ci.yaml                    # PR and push: test, build image, build+validate bundle
+│   ├── e2e.yaml                   # E2E test runner (workflow_dispatch, called by e2e-trigger)
+│   ├── e2e-trigger.yaml           # Lightweight /e2e comment handler (authorizes + dispatches e2e.yaml)
 │   ├── publish-operatorhub.yaml   # Release: build, push, open OperatorHub PRs
 │   └── sync-forks.yaml            # Reusable: sync community-operators forks with upstream
 ├── Dockerfile             # Multi-arch operator image build
@@ -106,7 +112,9 @@ make manifests
 
 ## Running Tests
 
-The test suite uses [Ginkgo](https://onsi.github.io/ginkgo/) with [envtest](https://book.kubebuilder.io/reference/envtest.html), which runs a real `kube-apiserver` locally — no cluster required.
+### Unit tests
+
+The unit test suite uses [Ginkgo](https://onsi.github.io/ginkgo/) with [envtest](https://book.kubebuilder.io/reference/envtest.html), which runs a real `kube-apiserver` locally — no cluster required.
 
 ```bash
 make test
@@ -119,6 +127,45 @@ To view coverage in a browser:
 ```bash
 go tool cover -html=cover.out
 ```
+
+### End-to-end tests
+
+The e2e suite tests the operator against real AWS infrastructure (ROSA HCP cluster + ECR). It is triggered by commenting on a PR — it is **not** automatic.
+
+#### Commands
+
+| PR Comment | What it does |
+|---|---|
+| `/e2e` | Provision infrastructure, run tests, destroy infrastructure |
+| `/e2e debug` | Provision and test, but **preserve** infrastructure for investigation |
+| `/e2e destroy` | Destroy infrastructure only (cleanup after `/e2e debug` or a failed run) |
+| `/e2e force-destroy` | Remove stuck/deleted ROSA cluster from Terraform state, then destroy remaining resources |
+
+All commands can also be triggered via **Actions > E2E Tests > Run workflow** with a PR number and command selection.
+
+#### Prerequisites
+
+- The CI workflow must have completed first (it builds the `pr-<number>` tagged operator and bundle images)
+- Only users listed in `CODEOWNERS` can trigger e2e runs via PR comments
+- AWS credentials are obtained via GitHub OIDC — no static keys needed
+- The `e2e-test` GitHub Actions environment gates the provisioning and destroy jobs
+
+#### What gets provisioned
+
+The workflow uses Terraform (`test/e2e/terraform/`) to create a single-AZ VPC, a ROSA HCP cluster with 2 workers, an ECR repository, and an IAM role federated to the cluster's OIDC provider. All resources are tagged for traceability and scoped to the PR number. Infrastructure typically takes 30-45 minutes to provision.
+
+#### Test cases
+
+The test suite (`test/e2e/scripts/run-e2e.sh`) covers:
+
+1. `Secret` CR creates a valid `kubernetes.io/dockerconfigjson` secret
+2. `ArgoHelmRepoSecret` CR creates a properly labeled ArgoCD repo secret
+3. Deleting and recreating a `Secret` CR produces a new secret
+4. Deleting the generated secret and triggering reconciliation recreates it
+5. A `Secret` CR with an invalid region does not crash the operator
+6. A `Secret` CR with a non-existent registry fails gracefully
+
+For full details on infrastructure, test mechanics, and troubleshooting, see [`test/e2e/README.md`](test/e2e/README.md).
 
 ---
 
@@ -495,7 +542,7 @@ Once both PRs are merged, the new version will appear in OperatorHub within a fe
 
 ## GitHub Actions Workflows
 
-Three workflows live in `.github/workflows/`:
+Four workflows live in `.github/workflows/`:
 
 ### `ci.yaml` — Continuous Integration
 
@@ -510,6 +557,34 @@ Triggers on every push to `main` and every pull request targeting `main`. All th
 All three jobs must pass before a PR can be merged.
 
 PR image tags are ephemeral — they are intended for manual testing only and will be overwritten by subsequent PRs with the same number. Production images are only published by the `publish-operatorhub.yaml` workflow on release.
+
+### `e2e-trigger.yaml` + `e2e.yaml` — End-to-End Tests
+
+The e2e system is split into two workflows for security (avoids running untrusted PR code in a privileged `issue_comment` context):
+
+**`e2e-trigger.yaml`** handles `/e2e` PR comments. It parses the command, checks CODEOWNER authorization, reacts with a rocket emoji, and dispatches `e2e.yaml` via `gh workflow run`. It has no access to AWS secrets and never checks out PR code.
+
+**`e2e.yaml`** is `workflow_dispatch`-only and does all the actual work:
+
+| Job | What it does |
+|---|---|
+| `resolve-pr` | Looks up the PR's head SHA and labels |
+| `provision` | Terraform apply: VPC, ROSA HCP cluster, ECR repo, IAM OIDC role (runs for `run` and `debug`) |
+| `test` | Installs operator via OLM bundle, runs the e2e test suite (runs for `run` and `debug`) |
+| `destroy` | Terraform destroy (runs for `run`, `destroy`, `force-destroy`; skipped for `debug` and when `e2e-keep-infra` label is present) |
+
+See [End-to-end tests](#end-to-end-tests) above for usage and [`test/e2e/README.md`](test/e2e/README.md) for full details.
+
+### Required secrets for e2e
+
+| Secret | Description |
+|---|---|
+| `RHCS_CLIENT_ID` | OCM service account client ID for ROSA cluster provisioning |
+| `RHCS_CLIENT_SECRET` | OCM service account client secret |
+
+### Required environment: `e2e-test`
+
+The `provision` and `destroy` jobs target the `e2e-test` GitHub Actions environment. This can be configured with required reviewers or deployment branch restrictions under **Settings > Environments**.
 
 ### `sync-forks.yaml` — Fork Sync
 
