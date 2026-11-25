@@ -129,11 +129,14 @@ jobs:
   # ------------------------------------------------------------------ #
   # community-operators-prod  (OpenShift OperatorHub — uses FBC)
   #
-  # FBC process:
+  # FBC process (auto-release):
   #   1. Copy the bundle version directory (manifests + metadata)
-  #   2. Add the new version entry to catalog-templates/basic.yaml
-  #   3. Update release-config.yaml with the new replaces/skips graph
-  #   The pipeline renders the actual catalogs from these templates.
+  #   2. Write <version>/release-config.yaml with the replaces/skips graph
+  #   After this PR merges, the release pipeline opens a second "Catalog
+  #   update" PR that adds the bundle to catalog-templates/basic.yaml and
+  #   renders catalogs/v4.x. Do NOT edit basic.yaml here — the pipeline only
+  #   auto-releases when release-config.yaml is inside the version directory.
+  #   See https://github.com/redhat-openshift-ecosystem/operator-pipelines/blob/main/docs/users/fbc_autorelease.md
   # ------------------------------------------------------------------ #
   publish-openshift-operatorhub:
     name: PR to community-operators-prod (FBC)
@@ -163,126 +166,64 @@ jobs:
           cp -r bundle/manifests "${DEST}/"
           cp -r bundle/metadata  "${DEST}/"
 
-      - name: Update catalog-templates/basic.yaml and release-config.yaml
-        # Insert the new version entry into basic.yaml and update the upgrade graph
-        # in release-config.yaml so that:
-        #   - The new version replaces the previous latest (PREV_BUNDLE)
-        #   - The version that PREV_BUNDLE was previously replacing moves into skips
+      - name: Write release-config.yaml for FBC auto-release
+        # The new version replaces the latest version already in the alpha
+        # channel of basic.yaml and skips every other published version.
         run: |
           VERSION=${{ needs.build-and-push.outputs.version }}
-          TEMPLATE=community-operators-prod/operators/ecr-secret-operator/catalog-templates/basic.yaml
-          RELEASE_CONFIG=community-operators-prod/operators/ecr-secret-operator/release-config.yaml
+          OPERATOR_DIR=community-operators-prod/operators/ecr-secret-operator
 
-          # Extract the current latest bundle name from basic.yaml.
-          # Entries look like:  "  - name: ecr-secret-operator.v0.4.1"
-          # Use grep -o to capture only the matched token, avoiding field-splitting issues.
-          PREV_BUNDLE=$(grep -o "ecr-secret-operator\.v[0-9][0-9.]*" "${TEMPLATE}" | head -1)
-
-          if [ -z "${PREV_BUNDLE}" ]; then
-            echo "ERROR: could not determine previous bundle from ${TEMPLATE}" >&2
-            exit 1
-          fi
-
-          echo "Previous bundle: ${PREV_BUNDLE}"
-          echo "New version:     ecr-secret-operator.v${VERSION}"
-
-          # ---- Update basic.yaml ----------------------------------------
-          # Strategy: parse with yaml (read-only) to collect bundle names, then
-          # insert new lines directly — avoids round-tripping which would destroy
-          # the base64 icon and other formatting in the file.
           python3 - <<PYEOF
-          import yaml, sys
+          import re, sys, yaml
 
-          TEMPLATE    = "${TEMPLATE}"
-          NEW_BUNDLE  = "ecr-secret-operator.v${VERSION}"
-          PREV_BUNDLE = "${PREV_BUNDLE}"
+          OPERATOR_DIR = "${OPERATOR_DIR}"
+          VERSION      = "${VERSION}"
+          NEW_BUNDLE   = f"ecr-secret-operator.v{VERSION}"
 
-          with open(TEMPLATE) as f:
-              lines = f.readlines()
+          with open(f"{OPERATOR_DIR}/catalog-templates/basic.yaml") as f:
+              doc = yaml.safe_load(f)
 
-          # Parse once to collect existing channel bundle names (skips list)
-          doc = yaml.safe_load("".join(lines))
-          existing_names = []
+          names = []
           for item in doc.get("entries", []):
-              if isinstance(item, dict) and item.get("schema") == "olm.channel":
-                  for e in item.get("entries", []):
-                      if isinstance(e, dict) and "name" in e:
-                          existing_names.append(e["name"])
+              if isinstance(item, dict) and item.get("schema") == "olm.channel" \
+                      and item.get("name") == "alpha":
+                  names = [e["name"] for e in item.get("entries", []) if "name" in e]
                   break
 
-          # skips = every previously published version except the immediate predecessor
-          skips = sorted([n for n in existing_names if n != PREV_BUNDLE])
+          def semver(name):
+              m = re.fullmatch(r"ecr-secret-operator\.v(\d+)\.(\d+)\.(\d+)", name)
+              return tuple(int(x) for x in m.groups()) if m else None
 
-          # Find the first "- name: ecr-secret-operator.v" line in the file.
-          # olm.bundle entries use "image:" not "name:", so this pattern only
-          # appears inside the olm.channel entries block — no sentinel needed.
-          insert_at = None
-          indent = 2  # default
-          for i, line in enumerate(lines):
-              if "- name: ecr-secret-operator.v" in line:
-                  insert_at = i
-                  indent = len(line) - len(line.lstrip())
-                  break
-
-          if insert_at is None:
-              print("ERROR: could not find channel bundle entries", file=sys.stderr)
+          published = [n for n in names if semver(n) and n != NEW_BUNDLE]
+          if not published:
+              print("ERROR: no published bundles found in alpha channel", file=sys.stderr)
               sys.exit(1)
 
-          sp = " " * indent   # indentation of the "- name:" line itself
-          # Layout (sp=2):
-          #   {sp}- name: ...          e.g.  "  - name: ..."
-          #   {sp}  replaces: ...            "    replaces: ..."
-          #   {sp}  skips:                   "    skips:"
-          #   {sp}    - item                 "      - item"   ← 2 more than skips:
-          new_lines = [f"{sp}- name: {NEW_BUNDLE}\n",
-                       f"{sp}  replaces: {PREV_BUNDLE}\n"]
+          prev = max(published, key=semver)
+          skips = sorted((n for n in published if n != prev), key=semver, reverse=True)
+
+          config = {"catalog_templates": [{
+              "template_name": "basic.yaml",
+              "channels": ["alpha"],
+              "replaces": prev,
+          }]}
           if skips:
-              new_lines.append(f"{sp}  skips:\n")
-              for s in skips:
-                  new_lines.append(f"{sp}    - {s}\n")
+              config["catalog_templates"][0]["skips"] = skips
 
-          # Prepend: insert before the current first bundle entry
-          result = lines[:insert_at] + new_lines + lines[insert_at:]
-          with open(TEMPLATE, "w") as f:
-              f.writelines(result)
-
-          print(f"basic.yaml: inserted {NEW_BUNDLE} with {len(skips)} skips")
-          PYEOF
-
-          echo "--- basic.yaml (entries section) ---"
-          grep -A25 "schema: olm.channel" "${TEMPLATE}" | head -30
-
-          # ---- Update release-config.yaml --------------------------------
-          # PREV_BUNDLE is the previous latest version.
-          # The new release should *replace* PREV_BUNDLE.
-          # Whatever PREV_BUNDLE was previously replacing moves into *skips*.
-          python3 - <<PYEOF
-          import yaml
-
-          with open("${RELEASE_CONFIG}") as f:
-              config = yaml.safe_load(f)
-
-          tmpl = config["catalog_templates"][0]
-          old_replaces = tmpl.get("replaces", "")  # what PREV_BUNDLE was replacing
-          current_skips = tmpl.get("skips", [])
-
-          # Cascade: the version that was previously being replaced moves into skips
-          if old_replaces and old_replaces not in current_skips:
-              current_skips.insert(0, old_replaces)
-
-          # New release replaces the previous latest, not itself
-          tmpl["replaces"] = "${PREV_BUNDLE}"
-          # Guard: the new version should never appear in its own skips list
-          tmpl["skips"] = [s for s in current_skips if s != "ecr-secret-operator.v${VERSION}"]
-
-          with open("${RELEASE_CONFIG}", "w") as f:
+          with open(f"{OPERATOR_DIR}/{VERSION}/release-config.yaml", "w") as f:
+              f.write("---\n")
               yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
-          print("release-config.yaml updated")
+          print(f"{NEW_BUNDLE} replaces {prev}, skips {len(skips)} bundle(s)")
           PYEOF
 
-          echo "--- release-config.yaml ---"
-          cat "${RELEASE_CONFIG}"
+          cat "${OPERATOR_DIR}/${VERSION}/release-config.yaml"
+
+          # Remove the legacy operator-level release-config.yaml; the pipeline
+          # ignores it and it only causes confusion.
+          if [ -f "${OPERATOR_DIR}/release-config.yaml" ]; then
+            git -C community-operators-prod rm -q operators/ecr-secret-operator/release-config.yaml
+          fi
 
       - name: Push branch to fork and open PR
         env:
